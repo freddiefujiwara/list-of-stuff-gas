@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "test": "vitest run --coverage",
+    "build": "node build.js",
+    "deploy": "clasp push --force"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^1.6.0",
+    "vitest": "^1.6.0"
+  }
+}
