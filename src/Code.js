@@ -84,12 +84,13 @@ const createJsonpOutput = (data, callback) => {
 };
 
 export function doGet(e) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheetNames = ["room", "workman", "variety", "others"];
-  const ranges = sheetNames.map(name => `${name}!A:Z`);
 
-  const response = Sheets.Spreadsheets.Values.batchGet(SPREADSHEET_ID, { ranges });
-  const result = response.valueRanges.flatMap(valueRange => {
-    return sheetValuesToObjects(valueRange.values);
+  const result = sheetNames.flatMap(name => {
+    const sheet = ss.getSheetByName(name);
+    const values = sheet.getDataRange().getValues();
+    return sheetValuesToObjects(values);
   });
 
   return createJsonpOutput(result, e.parameter.callback);

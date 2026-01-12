@@ -46,59 +46,48 @@ global.UrlFetchApp = mockUrlFetchApp;
 global.Logger = {
   log: vi.fn(),
 };
-global.Sheets = {
-  Spreadsheets: {
-    Values: {
-      batchGet: vi.fn(),
-    },
-  },
-};
 
 describe("doGet", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.Sheets.Spreadsheets.Values.batchGet.mockReturnValue({
-      valueRanges: [
-        {
-          values: [
-            ["header1", "header2"],
-            ["value1", "value2"],
-          ],
-        },
-        {
-          values: [
-            ["header3", "header4"],
-            ["value3", "value4"],
-          ],
-        },
-      ],
+    mockSpreadsheet.getSheetByName.mockImplementation(sheetName => {
+      if (sheetName === "room") {
+        return {
+          ...mockSheet,
+          getDataRange: () => ({
+            getValues: () => [
+              ["header1", "header2"],
+              ["value1", "value2"],
+            ],
+          }),
+        };
+      }
+      return {
+        ...mockSheet,
+        getDataRange: () => ({
+          getValues: () => [["header1", "header2"]], // Empty data for other sheets
+        }),
+      };
     });
   });
 
   it("should return JSON when no callback is provided", () => {
     const e = { parameter: {} };
     doGet(e);
-    expect(global.Sheets.Spreadsheets.Values.batchGet).toHaveBeenCalled();
     expect(mockContentService.setMimeType).toHaveBeenCalledWith("JSON");
     expect(mockContentService.setContent).toHaveBeenCalledWith(
-      JSON.stringify([
-        { header1: "value1", header2: "value2" },
-        { header3: "value3", header4: "value4" },
-      ])
+      JSON.stringify([{ header1: "value1", header2: "value2" }])
     );
   });
 
   it("should return JSONP when a callback is provided", () => {
     const e = { parameter: { callback: "myCallback" } };
     doGet(e);
-    expect(global.Sheets.Spreadsheets.Values.batchGet).toHaveBeenCalled();
     expect(mockContentService.setMimeType).toHaveBeenCalledWith("JAVASCRIPT");
-    const expectedJson = JSON.stringify([
-      { header1: "value1", header2: "value2" },
-      { header3: "value3", header4: "value4" },
-    ]);
     expect(mockContentService.setContent).toHaveBeenCalledWith(
-      `myCallback&&myCallback(${expectedJson});`
+      'myCallback&&myCallback(' +
+        JSON.stringify([{ header1: "value1", header2: "value2" }]) +
+        ');'
     );
   });
 });
