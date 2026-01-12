@@ -5,7 +5,7 @@ const fetchJson = url => JSON.parse(UrlFetchApp.fetch(url).getContentText());
 
 const getSheet = name => SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(name);
 
-const clearSheet = sh => {
+const clearSheet = (sh = getSheet('room')) => {
   const lastRow = sh.getLastRow();
   if (lastRow > 1) {
     sh.getRange(2, 1, lastRow - 1, 7).clearContent();
@@ -31,6 +31,7 @@ const createRow = (item, c, x) => {
     item.price = rakutenItem.itemPrice;
     item.url = rakutenItem.affiliateUrl;
   }
+  Logger.log(item.name);
   return [
     item.name || '',
     item.picture?.url || '',
@@ -43,17 +44,18 @@ const createRow = (item, c, x) => {
 };
 
 export function crawlRoom() {
-  const sh = getSheet('room');
-  clearSheet(sh);
+  clearSheet();
 
   const collections = fetchJson('http://a.ze.gs/collections.json').data || [];
   const rows = collections.flatMap(c => {
+    Logger.log(c.name);
     const collects = fetchJson(`http://a.ze.gs/collects_${c.id}.json`).data || [];
     return collects.map(x => createRow(x.item || {}, c, x));
   });
 
+  Logger.log(rows);
   if (rows.length) {
-    sh.getRange(2, 1, rows.length, 7).setValues(rows);
+    getSheet('room').getRange(2, 1, rows.length, 7).setValues(rows);
   }
 }
 
@@ -81,15 +83,13 @@ const createJsonpOutput = (data, callback) => {
   return output;
 };
 
-
 export function doGet(e) {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const sheetNames = ["room", "workman", "variety", "others"];
+  const ranges = sheetNames.map(name => `${name}!A:Z`);
 
-  const result = sheetNames.flatMap(name => {
-    const sheet = ss.getSheetByName(name);
-    const values = sheet.getDataRange().getValues();
-    return sheetValuesToObjects(values);
+  const response = Sheets.Spreadsheets.Values.batchGet(SPREADSHEET_ID, { ranges });
+  const result = response.valueRanges.flatMap(valueRange => {
+    return sheetValuesToObjects(valueRange.values);
   });
 
   return createJsonpOutput(result, e.parameter.callback);
