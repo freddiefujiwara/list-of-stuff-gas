@@ -149,7 +149,7 @@ describe("crawlRoom", () => {
     expect(mockRange.setValues).toHaveBeenCalledWith([expectedRow]);
     expect(Logger.log).toHaveBeenCalledWith("collection1");
     expect(Logger.log).toHaveBeenCalledWith("Rakuten Item");
-    expect(Logger.log).toHaveBeenCalledWith([expectedRow]);
+    expect(Logger.log).toHaveBeenCalledWith("Fetched 1 items.");
   });
 
   it("should handle empty collections", () => {

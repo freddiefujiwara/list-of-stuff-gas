@@ -53,7 +53,7 @@ export function crawlRoom() {
     return collects.map(x => createRow(x.item || {}, c, x));
   });
 
-  Logger.log(rows);
+  Logger.log(`Fetched ${rows.length} items.`);
   if (rows.length) {
     getSheet('room').getRange(2, 1, rows.length, 7).setValues(rows);
   }
