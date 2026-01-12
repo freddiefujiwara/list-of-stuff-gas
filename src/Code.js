@@ -3,7 +3,7 @@ const SPREADSHEET_ID = '1yxnHhfAT2cEF50hvajHoLMsW_sf7JlxnjFKeDFLNAkc';
 // Simple fetch JSON helper
 const fetchJson = url => JSON.parse(UrlFetchApp.fetch(url).getContentText());
 
-function crawlRoom() {
+export function crawlRoom() {
 	const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
 	const sh = ss.getSheetByName('room');
 
@@ -60,12 +60,7 @@ function crawlRoom() {
 	if (rows.length) sh.getRange(2, 1, rows.length, 7).setValues(rows);
 }
 
-// Export modules for testing
-if (typeof module !== 'undefined') {
-  module.exports = { crawlRoom, doGet };
-}
-
-function doGet(e) {
+export function doGet(e) {
 	let result = [];
 	const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
 	["room", "workman", "variety", "others"].forEach(tab => {
