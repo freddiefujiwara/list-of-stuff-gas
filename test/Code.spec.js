@@ -51,6 +51,26 @@ describe("doGet", () => {
   beforeEach(() => {
     // Reset mocks before each test
     vi.clearAllMocks();
+
+    mockSpreadsheet.getSheetByName.mockImplementation(sheetName => {
+      if (sheetName === "room") {
+        return {
+          ...mockSheet,
+          getDataRange: vi.fn().mockReturnValue({
+            getValues: vi.fn().mockReturnValue([
+              ["header1", "header2"],
+              ["value1", "value2"],
+            ]),
+          }),
+        };
+      }
+      return {
+        ...mockSheet,
+        getDataRange: vi.fn().mockReturnValue({
+          getValues: vi.fn().mockReturnValue([["header1", "header2"]]),
+        }),
+      };
+    });
   });
 
   it("should return JSON when no callback is provided", () => {
@@ -58,12 +78,7 @@ describe("doGet", () => {
     doGet(e);
     expect(mockContentService.setMimeType).toHaveBeenCalledWith("JSON");
     expect(mockContentService.setContent).toHaveBeenCalledWith(
-      JSON.stringify([
-        { header1: "value1", header2: "value2" },
-        { header1: "value1", header2: "value2" },
-        { header1: "value1", header2: "value2" },
-        { header1: "value1", header2: "value2" },
-      ])
+      JSON.stringify([{ header1: "value1", header2: "value2" }])
     );
   });
 
@@ -73,12 +88,7 @@ describe("doGet", () => {
     expect(mockContentService.setMimeType).toHaveBeenCalledWith("JAVASCRIPT");
     expect(mockContentService.setContent).toHaveBeenCalledWith(
       'myCallback&&myCallback(' +
-        JSON.stringify([
-          { header1: "value1", header2: "value2" },
-          { header1: "value1", header2: "value2" },
-          { header1: "value1", header2: "value2" },
-          { header1: "value1", header2: "value2" },
-        ]) +
+        JSON.stringify([{ header1: "value1", header2: "value2" }]) +
         ');'
     );
   });
@@ -137,7 +147,7 @@ describe("crawlRoom", () => {
       [
         "Rakuten Item",
         "http://example.com/test.jpg",
-        "http://example.com/item",
+        "http://example.com/rakuten",
         2000,
         1,
         "collection1",

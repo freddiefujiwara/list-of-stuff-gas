@@ -3,7 +3,7 @@ const SPREADSHEET_ID = '1yxnHhfAT2cEF50hvajHoLMsW_sf7JlxnjFKeDFLNAkc';
 // Simple fetch JSON helper
 const fetchJson = url => JSON.parse(UrlFetchApp.fetch(url).getContentText());
 
-export function crawlRoom() {
+function crawlRoom() {
 	const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
 	const sh = ss.getSheetByName('room');
 
@@ -39,7 +39,7 @@ export function crawlRoom() {
 					if (rakutenItem) {
 					item.name = rakutenItem.itemName;
 					item.price = rakutenItem.itemPrice;
-					// item.url = rakutenItem.affiliateUrl; // optional
+					item.url = rakutenItem.affiliateUrl; // optional
 					}
 					}
 
@@ -60,7 +60,12 @@ export function crawlRoom() {
 	if (rows.length) sh.getRange(2, 1, rows.length, 7).setValues(rows);
 }
 
-export function doGet(e) {
+// Export modules for testing
+if (typeof module !== 'undefined') {
+  module.exports = { crawlRoom, doGet };
+}
+
+function doGet(e) {
 	let result = [];
 	const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
 	["room", "workman", "variety", "others"].forEach(tab => {

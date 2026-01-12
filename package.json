@@ -6,8 +6,6 @@
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^1.6.0",
-    "esbuild": "^0.27.2",
-    "esbuild-gas-plugin": "^0.10.0",
     "vitest": "^1.6.0"
   }
 }
