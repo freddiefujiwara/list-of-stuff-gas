@@ -8,7 +8,10 @@ function crawlRoom() {
 	const sh = ss.getSheetByName('room');
 
 	// Clear old data (keep header row)
-	sh.getRange(2, 1, Math.max(sh.getLastRow() - 1, 0), 7).clearContent();
+	const lastRow = sh.getLastRow();
+	if (lastRow > 1) {
+		sh.getRange(2, 1, lastRow - 1, 7).clearContent();
+	}
 
 	// Build rows first, then write once
 	const rows = [];
@@ -36,7 +39,7 @@ function crawlRoom() {
 					if (rakutenItem) {
 					item.name = rakutenItem.itemName;
 					item.price = rakutenItem.itemPrice;
-					// item.url = rakutenItem.affiliateUrl; // optional
+					item.url = rakutenItem.affiliateUrl; // optional
 					}
 					}
 
@@ -55,6 +58,11 @@ function crawlRoom() {
 	Logger.log(rows);
 	// Write to sheet (one shot)
 	if (rows.length) sh.getRange(2, 1, rows.length, 7).setValues(rows);
+}
+
+// Export modules for testing
+if (typeof module !== 'undefined') {
+  module.exports = { crawlRoom, doGet };
 }
 
 function doGet(e) {
