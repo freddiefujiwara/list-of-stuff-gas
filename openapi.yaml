@@ -7,10 +7,10 @@ info:
     deployment. The API supports JSON and JSONP responses, depending on whether a
     `callback` query parameter is supplied.
 servers:
-  - url: https://script.google.com/macros/s/AKfycbwUMhAHJDzp_mtR12fbHJlzNTptpSH78LNJAr9i9SXBdn_BUAwWJTtb1g/exec
+  - url: https://script.google.com/macros/s/AKfycbwUMhAHJDzp_mtR12fbHJlzNTptpSH78LNJAr9i9SXBdn_BUAwWJTtb1g
     description: Google Apps Script web app deployment
 paths:
-  /:
+  /exec:
     get:
       summary: List items from all configured sheets
       description: |
