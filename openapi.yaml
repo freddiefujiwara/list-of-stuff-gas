@@ -36,10 +36,6 @@ paths:
             application/javascript:
               schema:
                 type: string
-              examples:
-                jsonp:
-                  summary: JSONP response
-                  value: myCallback&&myCallback([{ "name": "Item" }]);
 components:
   schemas:
     SheetItem:
