@@ -1,0 +1,50 @@
+openapi: 3.0.3
+info:
+  title: Google Sheet Item Manager API
+  version: 1.0.0
+  description: |
+    Web API for reading aggregated item data from Google Sheets via a Google Apps Script
+    deployment. The API supports JSON and JSONP responses, depending on whether a
+    `callback` query parameter is supplied.
+servers:
+  - url: https://script.google.com/macros/s/AKfycbwUMhAHJDzp_mtR12fbHJlzNTptpSH78LNJAr9i9SXBdn_BUAwWJTtb1g/exec
+    description: Google Apps Script web app deployment
+paths:
+  /:
+    get:
+      summary: List items from all configured sheets
+      description: |
+        Returns a flattened list of items from the `room`, `workman`, `variety`, and
+        `others` sheets. When the optional `callback` parameter is provided, the response
+        is returned as JSONP.
+      parameters:
+        - in: query
+          name: callback
+          required: false
+          schema:
+            type: string
+          description: JSONP callback function name.
+      responses:
+        '200':
+          description: A list of items from all sheets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SheetItem'
+            application/javascript:
+              schema:
+                type: string
+              examples:
+                jsonp:
+                  summary: JSONP response
+                  value: myCallback&&myCallback([{ "name": "Item" }]);
+components:
+  schemas:
+    SheetItem:
+      type: object
+      description: |
+        A row from a sheet converted into an object using the header row as keys.
+        The exact fields depend on the sheet headers.
+      additionalProperties: true
