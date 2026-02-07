@@ -8,6 +8,7 @@ This is a Google Apps Script project that manages item information in a Google S
 - Provides a JSON and JSONP web API to read the data.
 - Includes a local testing setup using Vitest.
 - Easy to build and deploy with npm scripts.
+- Provides an OpenAPI specification in `openapi.yaml`.
 
 ## How it Works
 
@@ -20,6 +21,10 @@ This function can be run manually or on a schedule (as a time-based trigger in G
 ### `doGet()`
 
 This function works as a web API. When you access the script's deployment URL, it reads data from multiple sheets (`room`, `workman`, `variety`, `others`). It returns all the data combined into a single JSON object. It also supports JSONP callbacks if you add a `?callback=myFunction` parameter to the URL.
+
+## API Specification
+
+An OpenAPI 3.0 specification is available in [`openapi.yaml`](openapi.yaml). It documents the `doGet()` endpoint, including the optional `callback` parameter for JSONP responses. The deployed web app URL is `https://script.google.com/macros/s/AKfycbwUMhAHJDzp_mtR12fbHJlzNTptpSH78LNJAr9i9SXBdn_BUAwWJTtb1g/exec`.
 
 ## Local Development
 
