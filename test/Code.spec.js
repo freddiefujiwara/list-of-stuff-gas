@@ -220,6 +220,53 @@ describe("crawlRoom", () => {
     ]);
   });
 
+  it("should handle Rakuten API fetch error gracefully", () => {
+    mockUrlFetchApp.fetch.mockReturnValueOnce({
+      getContentText: () =>
+        JSON.stringify({
+          data: [{ id: 1, name: "collection1" }],
+        }),
+    });
+    mockUrlFetchApp.fetch.mockReturnValueOnce({
+      getContentText: () =>
+        JSON.stringify({
+          data: [
+            {
+              item: {
+                key: "test-item;123",
+                name: "Test Item",
+                picture: { url: "http://example.com/test.jpg" },
+                url: "http://example.com/item",
+                price: 1000,
+              },
+              content: "Test comment",
+            },
+          ],
+        }),
+    });
+    mockUrlFetchApp.fetch.mockImplementationOnce(() => {
+      throw new Error("Rakuten API network error");
+    });
+
+    crawlRoom();
+
+    expect(mockRange.clearContent).not.toHaveBeenCalled();
+    expect(mockRange.setValues).toHaveBeenCalledWith([
+      [
+        "Test Item",
+        "http://example.com/test.jpg",
+        "http://example.com/item",
+        1000,
+        1,
+        "collection1",
+        "Test comment",
+      ],
+    ]);
+    expect(Logger.log).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to fetch Rakuten item (test-item;123): Error: Rakuten API network error")
+    );
+  });
+
   it("should handle Rakuten API returning no items", () => {
     mockUrlFetchApp.fetch.mockReturnValueOnce({
       getContentText: () =>
