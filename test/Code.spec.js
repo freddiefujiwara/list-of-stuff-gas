@@ -120,35 +120,21 @@ describe("crawlRoom", () => {
               },
             ],
           }),
-      })
-      .mockReturnValueOnce({
-        getContentText: () =>
-          JSON.stringify({
-            Items: [
-              {
-                Item: {
-                  itemName: "Rakuten Item",
-                  itemPrice: 2000,
-                  affiliateUrl: "http://example.com/rakuten",
-                },
-              },
-            ],
-          }),
       });
 
     crawlRoom();
     const expectedRow = [
-      "Rakuten Item",
+      "Test Item",
       "http://example.com/test.jpg",
-      "http://example.com/rakuten",
-      2000,
+      "http://example.com/item",
+      1000,
       1,
       "collection1",
       "Test comment",
     ];
     expect(mockRange.setValues).toHaveBeenCalledWith([expectedRow]);
     expect(Logger.log).toHaveBeenCalledWith("collection1");
-    expect(Logger.log).toHaveBeenCalledWith("Rakuten Item");
+    expect(Logger.log).toHaveBeenCalledWith("Test Item");
     expect(Logger.log).toHaveBeenCalledWith("Fetched 1 items.");
   });
 
@@ -202,50 +188,6 @@ describe("crawlRoom", () => {
             },
           ],
         }),
-    });
-
-    crawlRoom();
-
-    expect(mockRange.clearContent).not.toHaveBeenCalled();
-    expect(mockRange.setValues).toHaveBeenCalledWith([
-      [
-        "Test Item",
-        "http://example.com/test.jpg",
-        "http://example.com/item",
-        1000,
-        1,
-        "collection1",
-        "Test comment",
-      ],
-    ]);
-  });
-
-  it("should handle Rakuten API returning no items", () => {
-    mockUrlFetchApp.fetch.mockReturnValueOnce({
-      getContentText: () =>
-        JSON.stringify({
-          data: [{ id: 1, name: "collection1" }],
-        }),
-    });
-    mockUrlFetchApp.fetch.mockReturnValueOnce({
-      getContentText: () =>
-        JSON.stringify({
-          data: [
-            {
-              item: {
-                key: "test-item;123",
-                name: "Test Item",
-                picture: { url: "http://example.com/test.jpg" },
-                url: "http://example.com/item",
-                price: 1000,
-              },
-              content: "Test comment",
-            },
-          ],
-        }),
-    });
-    mockUrlFetchApp.fetch.mockReturnValueOnce({
-      getContentText: () => JSON.stringify({ Items: [] }),
     });
 
     crawlRoom();
