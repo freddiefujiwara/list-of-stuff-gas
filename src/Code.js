@@ -12,30 +12,7 @@ const clearSheet = (sh = getSheet('room')) => {
   }
 };
 
-const getRakutenItem = code => {
-  if (!code) return null;
-  try {
-    const url =
-      'https://app.rakuten.co.jp/services/api/IchibaItem/Search/20170706' +
-      '?format=json' +
-      '&affiliateId=0ca3304d.a811038d.0ca3304e.80024f1e' +
-      '&applicationId=1070485698719039334' +
-      `&itemCode=${code.replace(';', '%3A')}`;
-    const data = fetchJson(url);
-    return data?.Items?.[0]?.Item;
-  } catch (err) {
-    Logger.log(`Failed to fetch Rakuten item (${code}): ${err}`);
-    return null;
-  }
-};
-
 const createRow = (item, c, x) => {
-  const rakutenItem = getRakutenItem(item.key);
-  if (rakutenItem) {
-    item.name = rakutenItem.itemName;
-    item.price = rakutenItem.itemPrice;
-    item.url = rakutenItem.affiliateUrl;
-  }
   Logger.log(item.name);
   return [
     item.name || '',
