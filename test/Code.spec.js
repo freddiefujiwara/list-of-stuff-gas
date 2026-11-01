@@ -46,6 +46,13 @@ global.UrlFetchApp = mockUrlFetchApp;
 global.Logger = {
   log: vi.fn(),
 };
+global.PropertiesService = {
+  getScriptProperties: vi.fn(() => ({
+    getProperty: vi.fn(
+      (name) => ({ DATA_BASE_URL: "http://home-api.example" })[name] || null
+    ),
+  })),
+};
 
 describe("doGet", () => {
   beforeEach(() => {

@@ -57,3 +57,10 @@ This project uses Node.js and npm for local testing and building.
     npm run deploy
     ```
     This command uses `clasp` to upload the contents of the `dist/` folder to your Google Apps Script project. You must have `clasp` installed and configured for this to work.
+
+## Script properties
+
+- `DATA_BASE_URL`: base URL of the home data server that hosts
+  `collections.json` and `collects_<id>.json`. The value is private
+  and is not in this repository, so it is set in the Apps Script
+  project's script properties.

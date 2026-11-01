@@ -25,13 +25,23 @@ const createRow = (item, c, x) => {
   ];
 };
 
+// The home data server base URL lives in the script property
+// DATA_BASE_URL, not in this public source code.
+const dataBaseUrl_ = () => {
+  const value = PropertiesService.getScriptProperties().getProperty('DATA_BASE_URL');
+  if (!value) {
+    throw new Error('script property DATA_BASE_URL is not set');
+  }
+  return value;
+};
+
 export function crawlRoom() {
   clearSheet();
 
-  const collections = fetchJson('http://a.ze.gs/collections.json').data || [];
+  const collections = fetchJson(`${dataBaseUrl_()}/collections.json`).data || [];
   const rows = collections.flatMap(c => {
     Logger.log(c.name);
-    const collects = fetchJson(`http://a.ze.gs/collects_${c.id}.json`).data || [];
+    const collects = fetchJson(`${dataBaseUrl_()}/collects_${c.id}.json`).data || [];
     return collects.map(x => createRow(x.item || {}, c, x));
   });
 
