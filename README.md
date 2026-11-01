@@ -24,7 +24,7 @@ This function works as a web API. When you access the script's deployment URL, i
 
 ## API Specification
 
-An OpenAPI 3.0 specification is available in [`openapi.yaml`](openapi.yaml). It documents the `doGet()` endpoint, including the optional `callback` parameter for JSONP responses. The deployed web app URL is `https://script.google.com/macros/s/AKfycbwUMhAHJDzp_mtR12fbHJlzNTptpSH78LNJAr9i9SXBdn_BUAwWJTtb1g/exec`.
+An OpenAPI 3.0 specification is available in [`openapi.yaml`](openapi.yaml). It documents the `doGet()` endpoint, including the optional `callback` parameter for JSONP responses. The deployed web app URL is not published here.
 
 ## Local Development
 
