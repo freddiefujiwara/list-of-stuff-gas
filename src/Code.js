@@ -92,10 +92,12 @@ const createJsonpOutput = (data, callback) => {
 // Freshness is TTL-based: a cache entry lives for
 // ITEMS_CACHE_TTL_SECONDS, so sheet edits show up within that window
 // at the latest. crawlRoom clears the cache immediately after it
-// rewrites the room sheet.
+// rewrites the room sheet. The TTL is the CacheService maximum (6h):
+// a full sheet read takes seconds, and with this site's traffic a
+// 10-minute TTL left most visits on the slow uncached path.
 const ITEMS_CACHE_KEY_PREFIX = 'items-response:v1:';
 const ITEMS_CACHE_META_KEY = `${ITEMS_CACHE_KEY_PREFIX}meta`;
-const ITEMS_CACHE_TTL_SECONDS = 600;
+const ITEMS_CACHE_TTL_SECONDS = 21600;
 const ITEMS_CACHE_CHUNK_CHARS = 20000;
 
 // Split a string into chunks of at most chunkSize characters, without
