@@ -54,6 +54,39 @@ global.PropertiesService = {
   })),
 };
 
+// In-memory stand-in for the script cache used by the doGet response cache
+const createMockCache = () => {
+  const store = new Map();
+  return {
+    store,
+    get: vi.fn((key) => (store.has(key) ? store.get(key) : null)),
+    getAll: vi.fn((keys) => {
+      const values = {};
+      keys.forEach((key) => {
+        if (store.has(key)) {
+          values[key] = store.get(key);
+        }
+      });
+      return values;
+    }),
+    putAll: vi.fn((entries) => {
+      Object.entries(entries).forEach(([key, value]) => store.set(key, value));
+    }),
+    removeAll: vi.fn((keys) => {
+      keys.forEach((key) => store.delete(key));
+    }),
+  };
+};
+
+let mockCache;
+global.CacheService = {
+  getScriptCache: vi.fn(() => mockCache),
+};
+
+beforeEach(() => {
+  mockCache = createMockCache();
+});
+
 describe("doGet", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -95,6 +128,132 @@ describe("doGet", () => {
       'myCallback&&myCallback(' +
         JSON.stringify([{ header1: "value1", header2: "value2" }]) +
         ');'
+    );
+  });
+});
+
+describe("doGet response cache", () => {
+  const META_KEY = "items-response:v1:meta";
+  const CHUNK_KEY = (index) => `items-response:v1:${index}`;
+
+  const stubSheetValues = (roomValues) => {
+    mockSpreadsheet.getSheetByName.mockImplementation((sheetName) => ({
+      ...mockSheet,
+      getDataRange: () => ({
+        getValues: () => (sheetName === "room" ? roomValues : [["h"]]),
+      }),
+    }));
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stubSheetValues([["h"], ["v"]]);
+  });
+
+  it("serves the second request from the cache without reopening the spreadsheet", () => {
+    const e = { parameter: {} };
+    doGet(e);
+    doGet(e);
+    expect(global.SpreadsheetApp.openById).toHaveBeenCalledTimes(1);
+    expect(mockContentService.setContent).toHaveBeenLastCalledWith(
+      JSON.stringify([{ h: "v" }])
+    );
+  });
+
+  it("wraps cached data as JSONP when a callback is provided", () => {
+    doGet({ parameter: {} });
+    doGet({ parameter: { callback: "cb" } });
+    expect(global.SpreadsheetApp.openById).toHaveBeenCalledTimes(1);
+    expect(mockContentService.setContent).toHaveBeenLastCalledWith(
+      "cb&&cb(" + JSON.stringify([{ h: "v" }]) + ");"
+    );
+  });
+
+  it("splits a large response into multiple cache chunks", () => {
+    const big = "x".repeat(45000);
+    stubSheetValues([["h"], [big]]);
+    doGet({ parameter: {} });
+
+    const json = JSON.stringify([{ h: big }]);
+    const meta = JSON.parse(mockCache.store.get(META_KEY));
+    expect(meta).toEqual({ chunks: 3, length: json.length });
+    const parts = [0, 1, 2].map((i) => mockCache.store.get(CHUNK_KEY(i)));
+    parts.forEach((part) => expect(part.length).toBeLessThanOrEqual(20000));
+    expect(parts.join("")).toBe(json);
+  });
+
+  it("does not split a surrogate pair across a chunk boundary", () => {
+    // The JSON prefix `[{"h":"` is 7 chars, so 19992 filler chars place
+    // the emoji's high surrogate exactly at the end of the first chunk.
+    const value = "a".repeat(19992) + "😀" + "b".repeat(10);
+    stubSheetValues([["h"], [value]]);
+    doGet({ parameter: {} });
+
+    const json = JSON.stringify([{ h: value }]);
+    const meta = JSON.parse(mockCache.store.get(META_KEY));
+    expect(meta.chunks).toBe(2);
+    expect(mockCache.store.get(CHUNK_KEY(0)).length).toBe(20001);
+    const parts = [0, 1].map((i) => mockCache.store.get(CHUNK_KEY(i)));
+    expect(parts.join("")).toBe(json);
+
+    doGet({ parameter: {} });
+    expect(mockContentService.setContent).toHaveBeenLastCalledWith(json);
+  });
+
+  it("rebuilds from the sheets when a cache chunk is missing", () => {
+    doGet({ parameter: {} });
+    mockCache.store.delete(CHUNK_KEY(0));
+    stubSheetValues([["h"], ["changed"]]);
+
+    doGet({ parameter: {} });
+    expect(global.SpreadsheetApp.openById).toHaveBeenCalledTimes(2);
+    expect(mockContentService.setContent).toHaveBeenLastCalledWith(
+      JSON.stringify([{ h: "changed" }])
+    );
+  });
+
+  it("rebuilds from the sheets when the cache manifest is corrupt", () => {
+    mockCache.store.set(META_KEY, "not-json");
+    doGet({ parameter: {} });
+    expect(global.SpreadsheetApp.openById).toHaveBeenCalledTimes(1);
+    expect(mockContentService.setContent).toHaveBeenLastCalledWith(
+      JSON.stringify([{ h: "v" }])
+    );
+  });
+
+  it("rebuilds from the sheets when the cached length does not match", () => {
+    doGet({ parameter: {} });
+    const meta = JSON.parse(mockCache.store.get(META_KEY));
+    mockCache.store.set(
+      META_KEY,
+      JSON.stringify({ chunks: meta.chunks, length: meta.length + 1 })
+    );
+    stubSheetValues([["h"], ["changed"]]);
+
+    doGet({ parameter: {} });
+    expect(global.SpreadsheetApp.openById).toHaveBeenCalledTimes(2);
+    expect(mockContentService.setContent).toHaveBeenLastCalledWith(
+      JSON.stringify([{ h: "changed" }])
+    );
+  });
+
+  it("still serves the response when reading the cache throws", () => {
+    mockCache.get.mockImplementationOnce(() => {
+      throw new Error("cache read failed");
+    });
+    doGet({ parameter: {} });
+    expect(mockContentService.setContent).toHaveBeenLastCalledWith(
+      JSON.stringify([{ h: "v" }])
+    );
+  });
+
+  it("still serves the response when writing the cache throws", () => {
+    mockCache.putAll.mockImplementationOnce(() => {
+      throw new Error("cache write failed");
+    });
+    doGet({ parameter: {} });
+    expect(mockContentService.setContent).toHaveBeenLastCalledWith(
+      JSON.stringify([{ h: "v" }])
     );
   });
 });
@@ -143,6 +302,37 @@ describe("crawlRoom", () => {
     expect(Logger.log).toHaveBeenCalledWith("collection1");
     expect(Logger.log).toHaveBeenCalledWith("Test Item");
     expect(Logger.log).toHaveBeenCalledWith("Fetched 1 items.");
+  });
+
+  it("should clear the doGet response cache after rewriting the room sheet", () => {
+    mockCache.store.set(
+      "items-response:v1:meta",
+      JSON.stringify({ chunks: 1, length: 2 })
+    );
+    mockCache.store.set("items-response:v1:0", "[]");
+    mockUrlFetchApp.fetch
+      .mockReturnValueOnce({
+        getContentText: () => JSON.stringify({ data: [{ id: 1, name: "collection1" }] }),
+      })
+      .mockReturnValueOnce({
+        getContentText: () => JSON.stringify({ data: [] }),
+      });
+
+    crawlRoom();
+
+    expect(mockCache.store.has("items-response:v1:meta")).toBe(false);
+    expect(mockCache.store.has("items-response:v1:0")).toBe(false);
+  });
+
+  it("should not fail when clearing the response cache throws", () => {
+    mockCache.removeAll.mockImplementationOnce(() => {
+      throw new Error("cache remove failed");
+    });
+    mockUrlFetchApp.fetch.mockReturnValueOnce({
+      getContentText: () => JSON.stringify({ data: [] }),
+    });
+
+    expect(() => crawlRoom()).not.toThrow();
   });
 
   it("should handle empty collections", () => {
