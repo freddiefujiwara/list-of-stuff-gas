@@ -304,6 +304,61 @@ describe("crawlRoom", () => {
     expect(Logger.log).toHaveBeenCalledWith("Fetched 1 items.");
   });
 
+  it("should store Rakuten picture URLs with a resize query", () => {
+    mockUrlFetchApp.fetch
+      .mockReturnValueOnce({
+        getContentText: () => JSON.stringify({ data: [{ id: 1, name: "collection1" }] }),
+      })
+      .mockReturnValueOnce({
+        getContentText: () =>
+          JSON.stringify({
+            data: [
+              {
+                item: {
+                  name: "Rakuten Item",
+                  picture: { url: "https://tshop.r10s.jp/shop/cabinet/item.jpg" },
+                  url: "https://item.rakuten.co.jp/shop/item/",
+                  price: 2000,
+                },
+                content: "comment",
+              },
+              {
+                item: {
+                  name: "Already Queried",
+                  picture: { url: "https://shop.r10s.jp/shop/cabinet/item2.jpg?_ex=100x100" },
+                  url: "https://item.rakuten.co.jp/shop/item2/",
+                  price: 3000,
+                },
+                content: "comment2",
+              },
+            ],
+          }),
+      });
+
+    crawlRoom();
+
+    expect(mockRange.setValues).toHaveBeenCalledWith([
+      [
+        "Rakuten Item",
+        "https://tshop.r10s.jp/shop/cabinet/item.jpg?_ex=400x400",
+        "https://item.rakuten.co.jp/shop/item/",
+        2000,
+        1,
+        "collection1",
+        "comment",
+      ],
+      [
+        "Already Queried",
+        "https://shop.r10s.jp/shop/cabinet/item2.jpg?_ex=100x100",
+        "https://item.rakuten.co.jp/shop/item2/",
+        3000,
+        1,
+        "collection1",
+        "comment2",
+      ],
+    ]);
+  });
+
   it("should clear the doGet response cache after rewriting the room sheet", () => {
     mockCache.store.set(
       "items-response:v1:meta",
