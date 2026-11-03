@@ -1,9 +1,17 @@
 const SPREADSHEET_ID = '1yxnHhfAT2cEF50hvajHoLMsW_sf7JlxnjFKeDFLNAkc';
 
+// Environment separation (staging): when the SPREADSHEET_ID script
+// property is set, it overrides the built-in production spreadsheet ID
+// above. When the property is unset, behavior is identical to
+// production.
+const spreadsheetId_ = () =>
+  PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') ||
+  SPREADSHEET_ID;
+
 // Simple fetch JSON helper
 const fetchJson = url => JSON.parse(UrlFetchApp.fetch(url).getContentText());
 
-const getSheet = name => SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(name);
+const getSheet = name => SpreadsheetApp.openById(spreadsheetId_()).getSheetByName(name);
 
 const clearSheet = (sh = getSheet('room')) => {
   const lastRow = sh.getLastRow();
@@ -206,7 +214,7 @@ const clearItemsCache = () => {
 
 // Read every item sheet and build the response data.
 const fetchAllItems = () => {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = SpreadsheetApp.openById(spreadsheetId_());
   const sheetNames = ["room", "workman", "variety", "others"];
 
   return sheetNames.flatMap(name => {

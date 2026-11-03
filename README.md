@@ -64,3 +64,16 @@ This project uses Node.js and npm for local testing and building.
   `collections.json` and `collects_<id>.json`. The value is private
   and is not in this repository, so it is set in the Apps Script
   project's script properties.
+
+## Staging environment
+
+A separate staging deployment of this script can be pointed at a dummy
+spreadsheet by setting a script property on the staging project:
+
+- `SPREADSHEET_ID`: the staging spreadsheet (same sheet names and
+  headers as production, dummy rows only). When unset, the built-in
+  production spreadsheet ID is used and behavior is identical to
+  production.
+
+The staging project has no triggers (in particular, `crawlRoom` never
+runs there) and does not need the `DATA_BASE_URL` property.
