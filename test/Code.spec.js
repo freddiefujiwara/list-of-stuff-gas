@@ -524,4 +524,23 @@ describe("crawlRoom", () => {
 
     expect(mockRange.clearContent).toHaveBeenCalled();
   });
+
+  it("should leave the sheet untouched when a fetch fails", () => {
+    mockSheet.getLastRow.mockReturnValue(2); // Simulate existing data
+    mockUrlFetchApp.fetch
+      .mockReturnValueOnce({
+        getContentText: () =>
+          JSON.stringify({ data: [{ id: 1, name: "collection1" }] }),
+      })
+      .mockReturnValueOnce({
+        // The data server once answered a collects fetch with a plain
+        // "OK" instead of JSON (2026-11-03); parsing that must fail
+        // before the sheet is cleared, not after.
+        getContentText: () => "OK",
+      });
+
+    expect(() => crawlRoom()).toThrow();
+    expect(mockRange.clearContent).not.toHaveBeenCalled();
+    expect(mockRange.setValues).not.toHaveBeenCalled();
+  });
 });
