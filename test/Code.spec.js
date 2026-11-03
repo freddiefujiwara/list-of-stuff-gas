@@ -544,3 +544,31 @@ describe("crawlRoom", () => {
     expect(mockRange.setValues).not.toHaveBeenCalled();
   });
 });
+
+describe("spreadsheet id override (staging)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSpreadsheet.getSheetByName.mockImplementation(() => ({
+      getDataRange: vi.fn().mockReturnValue({
+        getValues: vi.fn().mockReturnValue([["h"], ["v"]]),
+      }),
+    }));
+  });
+
+  it("falls back to the production spreadsheet id when the property is unset", () => {
+    doGet({ parameter: {} });
+    expect(global.SpreadsheetApp.openById).toHaveBeenCalledWith(
+      "1yxnHhfAT2cEF50hvajHoLMsW_sf7JlxnjFKeDFLNAkc"
+    );
+  });
+
+  it("uses the SPREADSHEET_ID script property when it is set", () => {
+    global.PropertiesService.getScriptProperties.mockReturnValue({
+      getProperty: vi.fn((name) =>
+        name === "SPREADSHEET_ID" ? "staging-sheet-id" : null
+      ),
+    });
+    doGet({ parameter: {} });
+    expect(global.SpreadsheetApp.openById).toHaveBeenCalledWith("staging-sheet-id");
+  });
+});
