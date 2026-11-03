@@ -53,8 +53,10 @@ const dataBaseUrl_ = () => {
 };
 
 export function crawlRoom() {
-  clearSheet();
-
+  // Fetch everything before touching the sheet: if a fetch fails, the
+  // previous data stays in place instead of leaving an emptied sheet
+  // behind (observed 2026-11-03, when one collects fetch returned a
+  // plain-text "OK" and the cleared sheet was never rewritten).
   const collections = fetchJson(`${dataBaseUrl_()}/collections.json`).data || [];
   const rows = collections.flatMap(c => {
     Logger.log(c.name);
@@ -63,6 +65,7 @@ export function crawlRoom() {
   });
 
   Logger.log(`Fetched ${rows.length} items.`);
+  clearSheet();
   if (rows.length) {
     getSheet('room').getRange(2, 1, rows.length, 7).setValues(rows);
   }
