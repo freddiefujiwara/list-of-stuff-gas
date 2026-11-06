@@ -238,12 +238,16 @@ export function doGet(e) {
 // ---------------------------------------------------------------------------
 // Blog article draft generation (prototype).
 //
-// generateListArticleDraft() turns the item sheets into a Google Doc in
-// the blog drafts folder, so blog-gas can render it as an article: one
-// heading per sheet tab, one sub-heading per genre, and for each item a
-// text line followed by the item URL as its own standalone paragraph
-// (the shape blog-gas turns into a link card). Manual run only — no
-// time-based trigger is installed for it.
+// generateListArticleDraft() turns the item sheets into a Google Doc, so
+// blog-gas can render it as an article: one heading per sheet tab, one
+// sub-heading per genre, and for each item a text line followed by the
+// item URL as its own standalone paragraph (the shape blog-gas turns
+// into a link card). The output is one fixed dummy document (a staging
+// dummy article) whose ID is kept in the script property
+// LIST_ARTICLE_DUMMY_DOC_ID; every run replaces its body. The generator
+// is manual-run: setupListArticleTrigger() installs the every-6-hours
+// trigger, and is itself run manually, only after the dummy output has
+// been verified.
 //
 // Privacy rules for this public-facing draft: per-item prices are fine,
 // but no grand total or sum is ever written, and the subscriptions
@@ -251,6 +255,7 @@ export function doGet(e) {
 // ---------------------------------------------------------------------------
 
 const LIST_ARTICLE_DRAFT_FOLDER_ID = '1tTl57xXMEYIqKmo8L0EbtRj7N1VfrNAC';
+const LIST_ARTICLE_DUMMY_DOC_PROPERTY = 'LIST_ARTICLE_DUMMY_DOC_ID';
 
 const LIST_ARTICLE_TABS = [
   { sheet: 'room', heading: '楽天ROOM' },
@@ -345,8 +350,9 @@ const extractSubscriptionNames = values => {
     );
 };
 
-// Read every source sheet up front, so the Doc is only created once the
-// full content exists (fetch-before-write, same pattern as crawlRoom).
+// Read every source sheet up front, so the Doc body is only replaced
+// once the full content exists (fetch-before-clear, same pattern as
+// crawlRoom).
 const readListArticleSource = () => {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const itemsByTab = {};
@@ -364,13 +370,32 @@ const readListArticleSource = () => {
   };
 };
 
+// The one fixed dummy document the generator writes into. Created in
+// the blog drafts folder on first use; its ID is stored in a script
+// property so every later run reuses (and replaces) the same Doc.
+const getListArticleDoc = () => {
+  const properties = PropertiesService.getScriptProperties();
+  const docId = properties.getProperty(LIST_ARTICLE_DUMMY_DOC_PROPERTY);
+  if (docId) {
+    return DocumentApp.openById(docId);
+  }
+  const doc = DocumentApp.create('持ち物リスト（試作）');
+  DriveApp.getFileById(doc.getId()).moveTo(
+    DriveApp.getFolderById(LIST_ARTICLE_DRAFT_FOLDER_ID)
+  );
+  properties.setProperty(LIST_ARTICLE_DUMMY_DOC_PROPERTY, doc.getId());
+  return doc;
+};
+
 export function generateListArticleDraft() {
+  // Build the entire content in memory before touching the Doc, so a
+  // failed read can never leave a half-written document behind.
   const { itemsByTab, subscriptionNames } = readListArticleSource();
   const blocks = buildListArticleBlocks(itemsByTab, subscriptionNames);
 
-  const dateStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
-  const doc = DocumentApp.create(`持ち物リスト（試作） ${dateStr}`);
+  const doc = getListArticleDoc();
   const body = doc.getBody();
+  body.clear();
   blocks.forEach(({ type, text }) => {
     const paragraph = body.appendParagraph(text);
     if (type === 'heading1') {
@@ -380,12 +405,23 @@ export function generateListArticleDraft() {
     }
   });
   doc.saveAndClose();
-
-  DriveApp.getFileById(doc.getId()).moveTo(
-    DriveApp.getFolderById(LIST_ARTICLE_DRAFT_FOLDER_ID)
-  );
-  Logger.log(`Created list article draft: ${doc.getUrl()}`);
+  Logger.log(`Updated list article draft: ${doc.getUrl()}`);
   return doc.getUrl();
+}
+
+// Install the every-6-hours trigger for generateListArticleDraft().
+// Idempotent: all existing triggers for the handler are deleted first,
+// so re-running this can never stack duplicates. Run manually, and only
+// after the dummy document's output has been verified — nothing calls
+// this automatically.
+export function setupListArticleTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(trigger => trigger.getHandlerFunction() === 'generateListArticleDraft')
+    .forEach(trigger => ScriptApp.deleteTrigger(trigger));
+  ScriptApp.newTrigger('generateListArticleDraft')
+    .timeBased()
+    .everyHours(6)
+    .create();
 }
 
 export { buildItemLine, buildListArticleBlocks, extractSubscriptionNames };
