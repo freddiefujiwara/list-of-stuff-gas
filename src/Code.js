@@ -303,8 +303,27 @@ const normalizeArticleUrl = url =>
     ch === ' ' ? '%20' : encodeURIComponent(ch)
   );
 
+// The blog front-end anchors every heading at "#h-<fnv1a32 of its text>"
+// (see blog's hashHeadingText). Reproducing the same hash here lets the
+// generated article link straight to its own sections.
+const headingAnchorId = text => {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `h-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+};
+
+// Short label for the genre navigation: drop the "にまつわる物" tail.
+const genreNavLabel = heading =>
+  heading.endsWith('にまつわる物')
+    ? heading.slice(0, -'にまつわる物'.length)
+    : heading;
+
 // Build the whole article as a flat list of blocks:
-// { type: 'heading1' | 'heading2' | 'text' | 'link' | 'listItem', text }.
+// { type: 'heading1' | 'heading2' | 'text' | 'link' | 'listItem', text }
+// or { type: 'nav', segments: [{ label, anchor }] }.
 // Items from all tabs are merged and grouped by genre; genres appear in
 // first-seen order and items keep sheet order within each genre. An
 // item with a URL renders as a link card, so only its comment follows
@@ -330,7 +349,17 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
       });
   });
 
+  // A genre navigation row (links to every section) goes right above
+  // each genre heading, so readers can jump between genres mid-article.
+  const sectionHeadings = [...genreOrder, 'サブスクリプション'];
+  const navSegments = sectionHeadings.map(heading => ({
+    label: genreNavLabel(heading),
+    anchor: `#${headingAnchorId(heading)}`,
+  }));
+  const pushNav = () => blocks.push({ type: 'nav', segments: navSegments });
+
   genreOrder.forEach(genre => {
+    pushNav();
     push('heading2', genre);
     // A per-genre index (table of contents) right under the heading:
     // just the item names, so readers can scan the whole genre before
@@ -352,6 +381,7 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
     });
   });
 
+  pushNav();
   push('heading2', 'サブスクリプション');
   (subscriptions || []).forEach(({ name, url }) => {
     push('text', name);
@@ -428,7 +458,16 @@ export function generateListArticleDraft() {
   const doc = getListArticleDoc();
   const body = doc.getBody();
   body.clear();
-  blocks.forEach(({ type, text }) => {
+  blocks.forEach(block => {
+    const { type, text } = block;
+    if (type === 'nav') {
+      const paragraph = body.appendParagraph('');
+      block.segments.forEach((segment, idx) => {
+        if (idx > 0) paragraph.appendText(' ｜ ');
+        paragraph.appendText(segment.label).setLinkUrl(segment.anchor);
+      });
+      return;
+    }
     if (type === 'listItem') {
       body.appendListItem(text);
       return;
@@ -460,4 +499,4 @@ export function setupListArticleTrigger() {
     .create();
 }
 
-export { buildItemLine, buildListArticleBlocks, extractSubscriptions, normalizeArticleUrl };
+export { buildItemLine, buildListArticleBlocks, extractSubscriptions, headingAnchorId, normalizeArticleUrl };

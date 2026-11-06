@@ -4,6 +4,7 @@ import {
   buildListArticleBlocks,
   extractSubscriptions,
   generateListArticleDraft,
+  headingAnchorId,
   normalizeArticleUrl,
   setupListArticleTrigger,
 } from "../src/Code.js";
@@ -121,6 +122,31 @@ const genreLinks = blocks
 expect(genreLinks[0]).toBe("https://item.rakuten.co.jp/example/1/");
 });
 
+describe("headingAnchorId", () => {
+it("matches the blog front-end's FNV-1a heading anchors", () => {
+expect(headingAnchorId("【住】暮らしにまつわる物")).toBe("h-fa943fd3");
+expect(headingAnchorId("【食】キッチンにまつわる物")).toBe("h-9d826523");
+expect(headingAnchorId("サブスクリプション")).toBe("h-e2ae72d0");
+});
+});
+
+it("puts a genre navigation row right above every section heading", () => {
+const blocks = buildListArticleBlocks(itemsByTab, [
+{ name: "Suno", url: "https://suno.com/" },
+]);
+const navs = blocks.filter((b) => b.type === "nav");
+expect(navs.length).toBe(3);
+expect(navs[0].segments).toEqual([
+{ label: "暮らし", anchor: "#h-ff42aa51" },
+{ label: "服", anchor: "#h-089ec8d8" },
+{ label: "サブスクリプション", anchor: "#h-e2ae72d0" },
+]);
+// each nav sits directly before its heading
+blocks.forEach((b, i) => {
+if (b.type === "heading2") expect(blocks[i - 1].type).toBe("nav");
+});
+});
+
 it("lists the genre's item names as an index right under its heading", () => {
 const blocks = buildListArticleBlocks(itemsByTab, []);
 const start = blocks.findIndex(
@@ -230,7 +256,10 @@ describe("generateListArticleDraft", () => {
     vi.clearAllMocks();
     mockBody = {
       clear: vi.fn(),
-      appendParagraph: vi.fn(() => ({ setHeading: vi.fn() })),
+      appendParagraph: vi.fn(() => ({
+        setHeading: vi.fn(),
+        appendText: vi.fn(() => ({ setLinkUrl: vi.fn() })),
+      })),
       appendListItem: vi.fn(() => ({})),
     };
     mockDoc = {
