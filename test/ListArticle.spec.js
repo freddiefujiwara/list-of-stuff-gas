@@ -121,6 +121,21 @@ const genreLinks = blocks
 expect(genreLinks[0]).toBe("https://item.rakuten.co.jp/example/1/");
 });
 
+it("lists the genre's item names as an index right under its heading", () => {
+const blocks = buildListArticleBlocks(itemsByTab, []);
+const start = blocks.findIndex(
+(b) => b.type === "heading2" && b.text === "暮らしにまつわる物"
+);
+expect(blocks.slice(start, start + 3)).toEqual([
+{ type: "heading2", text: "暮らしにまつわる物" },
+{ type: "listItem", text: "クリップライト" },
+{ type: "listItem", text: "手袋" },
+]);
+// every item appears in exactly one genre index
+const indexed = blocks.filter((b) => b.type === "listItem").map((b) => b.text);
+expect(indexed).toEqual(["クリップライト", "手袋", "スリッポン", "メモ帳"]);
+});
+
 it("puts the comment below the card and encodes search URLs", () => {
 const blocks = buildListArticleBlocks(itemsByTab, []);
 const cardIndex = blocks.findIndex(
@@ -216,6 +231,7 @@ describe("generateListArticleDraft", () => {
     mockBody = {
       clear: vi.fn(),
       appendParagraph: vi.fn(() => ({ setHeading: vi.fn() })),
+      appendListItem: vi.fn(() => ({})),
     };
     mockDoc = {
       getId: vi.fn(() => "doc-id"),
@@ -260,6 +276,8 @@ describe("generateListArticleDraft", () => {
     expect(url).toBe("https://docs.example/doc-id");
     const written = mockBody.appendParagraph.mock.calls.map((c) => c[0]);
     expect(written).toContain("https://example.com/1");
+    const indexed = mockBody.appendListItem.mock.calls.map((c) => c[0]);
+    expect(indexed).toEqual(["クリップライト"]);
     expect(written).toContain("机用");
     expect(written).not.toContain("クリップライト（¥2,029） 机用");
     expect(written).toContain("NHK");
