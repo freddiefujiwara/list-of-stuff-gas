@@ -450,9 +450,4 @@ export function setupListArticleTrigger() {
     .create();
 }
 
-export {
-  buildItemLine,
-  buildListArticleBlocks,
-  extractSubscriptions,
-  normalizeArticleUrl,
-};
+export { buildItemLine, buildListArticleBlocks, extractSubscriptions, normalizeArticleUrl };
