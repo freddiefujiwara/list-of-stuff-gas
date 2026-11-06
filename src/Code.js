@@ -341,7 +341,18 @@ const TITLE_PROPERTY_TOKENS = new Set([
 // the name — it is usually part of a model name (Anker 543).
 const isPropertyToken = token => {
   if (/\d/.test(token)) {
-    return !/^\d+$/.test(token);
+    if (/^\d+$/.test(token)) {
+      return false;
+    }
+    // A number with Japanese counter words (3色ボールペン, 12個セット)
+    // reads as part of the product name, not as a spec.
+    if (
+      !/[A-Za-z]/.test(token) &&
+      /(色|個セット|本セット|枚セット|個入り|本入り|枚入り)/.test(token)
+    ) {
+      return false;
+    }
+    return true;
   }
   if (TITLE_COLOR_TOKENS.has(token) || TITLE_PROPERTY_TOKENS.has(token)) {
     return true;
@@ -369,7 +380,9 @@ const splitTitle = rawTitle => {
   );
   const tokens = withoutBrackets
     .split(/[\s　]+/)
-    .filter(token => token !== '' && token !== '&' && token !== '＆');
+    // Standalone '&' separators and a bare 送料無料 token are noise,
+    // not name or properties.
+    .filter(token => token !== '' && token !== '&' && token !== '＆' && token !== '送料無料');
 
   const nameTokens = [];
   const propTokens = [];

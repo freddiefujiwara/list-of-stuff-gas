@@ -406,3 +406,22 @@ expect(splitTitle("")).toEqual({ name: "", props: "" });
 expect(splitTitle(undefined)).toEqual({ name: "", props: "" });
 });
 });
+
+describe("splitTitle refinements", () => {
+it("keeps number-plus-counter words in the name", () => {
+expect(splitTitle("ぺんてる 3色ボールペン フィール メタリックブルー BXCB35MC")).toEqual({
+name: "ぺんてる 3色ボールペン フィール メタリックブルー",
+props: "BXCB35MC",
+});
+const soap = splitTitle("12個セット 花王 石鹸 ホワイト アソート 130g");
+expect(soap.name).toBe("12個セット 花王 石鹸");
+expect(soap.props).toContain("130g");
+});
+
+it("drops a bare 送料無料 token", () => {
+expect(splitTitle("送料無料 ティッシュケース 底上げ")).toEqual({
+name: "ティッシュケース 底上げ",
+props: "",
+});
+});
+});
