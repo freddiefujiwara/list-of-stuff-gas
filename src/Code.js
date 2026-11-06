@@ -123,7 +123,7 @@ const createJsonpOutput = (data, callback) => {
 // rewrites the room sheet. The TTL is the CacheService maximum (6h):
 // a full sheet read takes seconds, and with this site's traffic a
 // 10-minute TTL left most visits on the slow uncached path.
-const ITEMS_CACHE_KEY_PREFIX = 'items-response:v1:';
+const ITEMS_CACHE_KEY_PREFIX = 'items-response:v2:';
 const ITEMS_CACHE_META_KEY = `${ITEMS_CACHE_KEY_PREFIX}meta`;
 const ITEMS_CACHE_TTL_SECONDS = 21600;
 const ITEMS_CACHE_CHUNK_CHARS = 20000;
@@ -212,7 +212,11 @@ const clearItemsCache = () => {
   }
 };
 
-// Read every item sheet and build the response data.
+// Read every item sheet and build the response data. Each item gains
+// a shortTitle (just the product name) and props (the property-like
+// remainder of the title), split by splitTitle, so card and article
+// surfaces can show the short name and put the properties in the
+// card description. The original title is left untouched.
 const fetchAllItems = () => {
   const ss = SpreadsheetApp.openById(spreadsheetId_());
   const sheetNames = ["room", "workman", "variety", "others"];
@@ -220,7 +224,10 @@ const fetchAllItems = () => {
   return sheetNames.flatMap(name => {
     const sheet = ss.getSheetByName(name);
     const values = sheet.getDataRange().getValues();
-    return sheetValuesToObjects(values);
+    return sheetValuesToObjects(values).map(item => {
+      const { name: shortTitle, props } = splitTitle(item.title);
+      return { ...item, shortTitle, props };
+    });
   });
 };
 
@@ -303,6 +310,103 @@ const normalizeArticleUrl = url =>
     ch === ' ' ? '%20' : encodeURIComponent(ch)
   );
 
+// ---------------------------------------------------------------------------
+// Title splitting: shop titles (Rakuten's especially) bury the product
+// name under promotional brackets and property-like tails (model
+// numbers, sizes, colours, compatibility lists). splitTitle separates
+// the two so surfaces can show just the name and move the rest into
+// the card description. The split is heuristic and deliberately
+// conservative: a title it cannot split comes back whole as the name.
+// ---------------------------------------------------------------------------
+
+// Bracketed segments whose content matches this are pure promotion
+// and are dropped; other bracketed segments (【新品】, 【Office 2019
+// H&B】...) count as properties.
+const TITLE_PROMO_PATTERN =
+  /オフ|%|倍|クーポン|1位|送料無料|セール|ポイント|特典|獲得|応援|最大|割引|半額|入荷|SALE/i;
+
+const TITLE_COLOR_TOKENS = new Set([
+  'ホワイト', 'ブラック', 'ブルー', 'レッド', 'グリーン', 'ピンク',
+  'グレー', 'シルバー', 'ゴールド', 'ネイビー', 'ベージュ', 'ブラウン',
+  'イエロー', 'パープル', 'オレンジ', 'クリア', 'アイボリー', 'カーキ',
+]);
+
+const TITLE_PROPERTY_TOKENS = new Set([
+  '特大', '大サイズ', '中サイズ', '小サイズ', '本体', '単品', '専用', '兼用',
+]);
+
+// A token is property-like when it carries a spec: a model number or
+// a number with a unit (digits mixed with anything else), a colour, a
+// size/state word, or a compatibility marker. A bare number stays in
+// the name — it is usually part of a model name (Anker 543).
+const isPropertyToken = token => {
+  if (/\d/.test(token)) {
+    if (/^\d+$/.test(token)) {
+      return false;
+    }
+    // A number with Japanese counter words (3色ボールペン, 12個セット)
+    // reads as part of the product name, not as a spec.
+    if (
+      !/[A-Za-z]/.test(token) &&
+      /(色|個セット|本セット|枚セット|個入り|本入り|枚入り)/.test(token)
+    ) {
+      return false;
+    }
+    return true;
+  }
+  if (TITLE_COLOR_TOKENS.has(token) || TITLE_PROPERTY_TOKENS.has(token)) {
+    return true;
+  }
+  return /対応|向け|専用/.test(token);
+};
+
+const TITLE_NAME_SOFT_LIMIT = 30;
+
+const splitTitle = rawTitle => {
+  const title = String(rawTitle ?? '').trim();
+  if (!title) {
+    return { name: '', props: '' };
+  }
+  const bracketProps = [];
+  const withoutBrackets = title.replace(
+    /【([^】]*)】|\[([^\]]*)\]/g,
+    (_, g1, g2) => {
+      const content = String(g1 ?? g2 ?? '').trim();
+      if (content && !TITLE_PROMO_PATTERN.test(content)) {
+        bracketProps.push(content);
+      }
+      return ' ';
+    }
+  );
+  const tokens = withoutBrackets
+    .split(/[\s　]+/)
+    // Standalone '&' separators and a bare 送料無料 token are noise,
+    // not name or properties.
+    .filter(token => token !== '' && token !== '&' && token !== '＆' && token !== '送料無料');
+
+  const nameTokens = [];
+  const propTokens = [];
+  let inProps = false;
+  tokens.forEach(token => {
+    if (!inProps && isPropertyToken(token)) {
+      inProps = true;
+    }
+    if (!inProps && nameTokens.join(' ').length >= TITLE_NAME_SOFT_LIMIT) {
+      inProps = true;
+    }
+    (inProps ? propTokens : nameTokens).push(token);
+  });
+  // A title that starts with a property token keeps its first token
+  // as the name rather than ending up nameless.
+  if (nameTokens.length === 0 && propTokens.length > 0) {
+    nameTokens.push(propTokens.shift());
+  }
+  return {
+    name: nameTokens.join(' '),
+    props: [...bracketProps, ...propTokens].join(' '),
+  };
+};
+
 // Build the whole article as a flat list of blocks:
 // { type: 'heading1' | 'heading2' | 'text' | 'link' | 'toc', text }.
 // Items from all tabs are merged and grouped by genre; genres appear in
@@ -339,10 +443,10 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
     // above) list the genres only, not every item. The comment
     // follows below the card.
     byGenre.get(genre).forEach((item, idx) => {
-      const title = String(item.title ?? '').trim();
+      const { name: title } = splitTitle(item.title);
       const url = String(item.url ?? '').trim();
       if (!url) {
-        push('text', `${idx + 1}. ${buildItemLine(item)}`);
+        push('text', `${idx + 1}. ${buildItemLine({ ...item, title })}`);
         return;
       }
       push('text', `${idx + 1}. ${title}`);
@@ -460,4 +564,4 @@ export function setupListArticleTrigger() {
     .create();
 }
 
-export { buildItemLine, buildListArticleBlocks, extractSubscriptions, normalizeArticleUrl };
+export { buildItemLine, buildListArticleBlocks, extractSubscriptions, normalizeArticleUrl, splitTitle };

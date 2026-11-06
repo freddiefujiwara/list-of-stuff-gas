@@ -6,6 +6,7 @@ import {
   generateListArticleDraft,
   normalizeArticleUrl,
   setupListArticleTrigger,
+  splitTitle,
 } from "../src/Code.js";
 
 describe("buildItemLine", () => {
@@ -348,4 +349,79 @@ describe("setupListArticleTrigger", () => {
     expect(builder.everyHours).toHaveBeenCalledWith(6);
     expect(builder.create).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("splitTitle", () => {
+it("drops promotional brackets and splits at the first property token", () => {
+expect(
+splitTitle("【マラソンセール中 P10倍!】 ジョンソン カビキラー 特大 サイズ 本体 1000g")
+).toEqual({ name: "ジョンソン カビキラー", props: "特大 サイズ 本体 1000g" });
+});
+
+it("treats model numbers and colours as properties", () => {
+expect(
+splitTitle("ヤザワコーポレーション 照明器具（クリップライト） CLX60X02WH ホワイト")
+).toEqual({
+name: "ヤザワコーポレーション 照明器具（クリップライト）",
+props: "CLX60X02WH ホワイト",
+});
+});
+
+it("keeps a bare model number in the name and caps long names", () => {
+const { name, props } = splitTitle(
+"Anker 543 エコフレンドリー USB-C & USB-C ケーブル 植物由来素材 240W 急速充電 (0.9m)"
+);
+expect(name).toBe("Anker 543 エコフレンドリー USB-C USB-C");
+  expect(props).toContain("ケーブル");
+expect(props).toContain("240W");
+expect(props).toContain("(0.9m)");
+});
+
+it("splits a compatibility-list title after the generic name", () => {
+expect(
+splitTitle("【楽天1位獲得】iPhone 保護フィルム iPhone18 pro Duo 10H ガラスザムライ")
+).toEqual({
+name: "iPhone 保護フィルム",
+props: "iPhone18 pro Duo 10H ガラスザムライ",
+});
+});
+
+it("moves non-promotional brackets into the properties", () => {
+expect(splitTitle("【Office 2019 H&B】Panasonic Let's note CF-SZ6")).toEqual({
+name: "Panasonic Let's note",
+props: "Office 2019 H&B CF-SZ6",
+});
+expect(splitTitle("【新品】CASIO カシオ スクール電卓 AZ-26S")).toEqual({
+name: "CASIO カシオ スクール電卓",
+props: "新品 AZ-26S",
+});
+});
+
+it("returns a space-less title whole and handles blanks", () => {
+expect(splitTitle("耐久撥水キャンバススリッポン")).toEqual({
+name: "耐久撥水キャンバススリッポン",
+props: "",
+});
+expect(splitTitle("")).toEqual({ name: "", props: "" });
+expect(splitTitle(undefined)).toEqual({ name: "", props: "" });
+});
+});
+
+describe("splitTitle refinements", () => {
+it("keeps number-plus-counter words in the name", () => {
+expect(splitTitle("ぺんてる 3色ボールペン フィール メタリックブルー BXCB35MC")).toEqual({
+name: "ぺんてる 3色ボールペン フィール メタリックブルー",
+props: "BXCB35MC",
+});
+const soap = splitTitle("12個セット 花王 石鹸 ホワイト アソート 130g");
+expect(soap.name).toBe("12個セット 花王 石鹸");
+expect(soap.props).toContain("130g");
+});
+
+it("drops a bare 送料無料 token", () => {
+expect(splitTitle("送料無料 ティッシュケース 底上げ")).toEqual({
+name: "ティッシュケース 底上げ",
+props: "",
+});
+});
 });
