@@ -147,19 +147,35 @@ if (b.type === "heading2") expect(blocks[i - 1].type).toBe("nav");
 });
 });
 
-it("lists the genre's item names as an index right under its heading", () => {
+it("puts each item's numbered name directly above its card", () => {
 const blocks = buildListArticleBlocks(itemsByTab, []);
 const start = blocks.findIndex(
 (b) => b.type === "heading2" && b.text === "暮らしにまつわる物"
 );
-expect(blocks.slice(start, start + 3)).toEqual([
+expect(blocks.slice(start, start + 7)).toEqual([
 { type: "heading2", text: "暮らしにまつわる物" },
-{ type: "listItem", text: "クリップライト" },
-{ type: "listItem", text: "手袋" },
+{ type: "toc" },
+{ type: "heading3", text: "1. クリップライト" },
+{ type: "link", text: "https://item.rakuten.co.jp/example/1/" },
+{ type: "text", text: "机用" },
+{ type: "heading3", text: "2. 手袋" },
+{
+type: "link",
+text: "https://www.google.com/search?q=%E3%83%AF%E3%83%BC%E3%82%AF%E3%83%9E%E3%83%B3%20%E6%89%8B%E8%A2%8B",
+},
 ]);
-// every item appears in exactly one genre index
-const indexed = blocks.filter((b) => b.type === "listItem").map((b) => b.text);
-expect(indexed).toEqual(["クリップライト", "手袋", "スリッポン", "メモ帳"]);
+// numbering restarts per genre, and URL-less items get a heading too
+const clothesStart = blocks.findIndex(
+(b) => b.type === "heading2" && b.text === "服"
+);
+expect(blocks[clothesStart + 2]).toEqual({
+type: "heading3",
+text: "1. スリッポン",
+});
+expect(blocks[clothesStart + 4]).toEqual({
+type: "heading3",
+text: "2. メモ帳",
+});
 });
 
 it("puts the comment below the card and encodes search URLs", () => {
@@ -197,12 +213,13 @@ const blocks = buildListArticleBlocks(itemsByTab, [
 { name: "NHK", url: "https://www.nhk.or.jp/" },
 { name: "DAZN", url: "" },
 ]);
-const tail = blocks.slice(-4);
+const tail = blocks.slice(-5);
 expect(tail).toEqual([
 { type: "heading2", text: "サブスクリプション"},
-{ type: "text", text: "NHK"},
+{ type: "toc" },
+{ type: "heading3", text: "NHK"},
 { type: "link", text: "https://www.nhk.or.jp/"},
-{ type: "text", text: "DAZN"},
+{ type: "heading3", text: "DAZN"},
 ]);
 });
 });
@@ -260,7 +277,6 @@ describe("generateListArticleDraft", () => {
         setHeading: vi.fn(),
         appendText: vi.fn(() => ({ setLinkUrl: vi.fn() })),
       })),
-      appendListItem: vi.fn(() => ({})),
     };
     mockDoc = {
       getId: vi.fn(() => "doc-id"),
@@ -305,8 +321,7 @@ describe("generateListArticleDraft", () => {
     expect(url).toBe("https://docs.example/doc-id");
     const written = mockBody.appendParagraph.mock.calls.map((c) => c[0]);
     expect(written).toContain("https://example.com/1");
-    const indexed = mockBody.appendListItem.mock.calls.map((c) => c[0]);
-    expect(indexed).toEqual(["クリップライト"]);
+    expect(written).toContain("1. クリップライト");
     expect(written).toContain("机用");
     expect(written).not.toContain("クリップライト（¥2,029） 机用");
     expect(written).toContain("NHK");

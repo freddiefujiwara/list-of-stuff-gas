@@ -322,7 +322,7 @@ const genreNavLabel = heading =>
     : heading;
 
 // Build the whole article as a flat list of blocks:
-// { type: 'heading1' | 'heading2' | 'text' | 'link' | 'listItem', text }
+// { type: 'heading1' | 'heading2' | 'heading3' | 'text' | 'link' | 'toc', text }
 // or { type: 'nav', segments: [{ label, anchor }] }.
 // Items from all tabs are merged and grouped by genre; genres appear in
 // first-seen order and items keep sheet order within each genre. An
@@ -361,13 +361,14 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
   genreOrder.forEach(genre => {
     pushNav();
     push('heading2', genre);
-    // A per-genre index (table of contents) right under the heading:
-    // just the item names, so readers can scan the whole genre before
-    // the cards start.
-    byGenre.get(genre).forEach(item => {
-      push('listItem', String(item.title ?? '').trim());
-    });
-    byGenre.get(genre).forEach(item => {
+    push('toc');
+    // Each item's name, numbered within the genre, becomes a level-3
+    // heading directly above its card, so the article's [[目次]] TOCs
+    // (one per genre, from the 'toc' block above) list every item.
+    // The comment follows below the card.
+    byGenre.get(genre).forEach((item, idx) => {
+      const title = String(item.title ?? '').trim();
+      push('heading3', `${idx + 1}. ${title}`);
       const url = String(item.url ?? '').trim();
       if (!url) {
         push('text', buildItemLine(item));
@@ -383,8 +384,9 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
 
   pushNav();
   push('heading2', 'サブスクリプション');
+  push('toc');
   (subscriptions || []).forEach(({ name, url }) => {
-    push('text', name);
+    push('heading3', name);
     const clean = String(url ?? '').trim();
     if (clean) {
       push('link', normalizeArticleUrl(clean));
@@ -468,15 +470,13 @@ export function generateListArticleDraft() {
       });
       return;
     }
-    if (type === 'listItem') {
-      body.appendListItem(text);
-      return;
-    }
-    const paragraph = body.appendParagraph(text);
+    const paragraph = body.appendParagraph(type === 'toc' ? '[[目次]]' : text);
     if (type === 'heading1') {
       paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING1);
     } else if (type === 'heading2') {
       paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    } else if (type === 'heading3') {
+      paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING3);
     }
   });
   doc.saveAndClose();
