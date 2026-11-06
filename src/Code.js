@@ -304,7 +304,7 @@ const normalizeArticleUrl = url =>
   );
 
 // Build the whole article as a flat list of blocks:
-// { type: 'heading1' | 'heading2' | 'text' | 'link', text }.
+// { type: 'heading1' | 'heading2' | 'text' | 'link' | 'listItem', text }.
 // Items from all tabs are merged and grouped by genre; genres appear in
 // first-seen order and items keep sheet order within each genre. An
 // item with a URL renders as a link card, so only its comment follows
@@ -332,6 +332,12 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
 
   genreOrder.forEach(genre => {
     push('heading2', genre);
+    // A per-genre index (table of contents) right under the heading:
+    // just the item names, so readers can scan the whole genre before
+    // the cards start.
+    byGenre.get(genre).forEach(item => {
+      push('listItem', String(item.title ?? '').trim());
+    });
     byGenre.get(genre).forEach(item => {
       const url = String(item.url ?? '').trim();
       if (!url) {
@@ -423,6 +429,10 @@ export function generateListArticleDraft() {
   const body = doc.getBody();
   body.clear();
   blocks.forEach(({ type, text }) => {
+    if (type === 'listItem') {
+      body.appendListItem(text);
+      return;
+    }
     const paragraph = body.appendParagraph(text);
     if (type === 'heading1') {
       paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING1);
