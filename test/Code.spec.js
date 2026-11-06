@@ -116,7 +116,7 @@ describe("doGet", () => {
     doGet(e);
     expect(mockContentService.setMimeType).toHaveBeenCalledWith("JSON");
     expect(mockContentService.setContent).toHaveBeenCalledWith(
-      JSON.stringify([{ header1: "value1", header2: "value2" }])
+      JSON.stringify([{ header1: "value1", header2: "value2", shortTitle: "", props: "" }])
     );
   });
 
@@ -126,15 +126,15 @@ describe("doGet", () => {
     expect(mockContentService.setMimeType).toHaveBeenCalledWith("JAVASCRIPT");
     expect(mockContentService.setContent).toHaveBeenCalledWith(
       'myCallback&&myCallback(' +
-        JSON.stringify([{ header1: "value1", header2: "value2" }]) +
+        JSON.stringify([{ header1: "value1", header2: "value2", shortTitle: "", props: "" }]) +
         ');'
     );
   });
 });
 
 describe("doGet response cache", () => {
-  const META_KEY = "items-response:v1:meta";
-  const CHUNK_KEY = (index) => `items-response:v1:${index}`;
+  const META_KEY = "items-response:v2:meta";
+  const CHUNK_KEY = (index) => `items-response:v2:${index}`;
 
   const stubSheetValues = (roomValues) => {
     mockSpreadsheet.getSheetByName.mockImplementation((sheetName) => ({
@@ -156,7 +156,7 @@ describe("doGet response cache", () => {
     doGet(e);
     expect(global.SpreadsheetApp.openById).toHaveBeenCalledTimes(1);
     expect(mockContentService.setContent).toHaveBeenLastCalledWith(
-      JSON.stringify([{ h: "v" }])
+      JSON.stringify([{ h: "v", shortTitle: "", props: "" }])
     );
   });
 
@@ -165,7 +165,7 @@ describe("doGet response cache", () => {
     doGet({ parameter: { callback: "cb" } });
     expect(global.SpreadsheetApp.openById).toHaveBeenCalledTimes(1);
     expect(mockContentService.setContent).toHaveBeenLastCalledWith(
-      "cb&&cb(" + JSON.stringify([{ h: "v" }]) + ");"
+      "cb&&cb(" + JSON.stringify([{ h: "v", shortTitle: "", props: "" }]) + ");"
     );
   });
 
@@ -174,7 +174,7 @@ describe("doGet response cache", () => {
     stubSheetValues([["h"], [big]]);
     doGet({ parameter: {} });
 
-    const json = JSON.stringify([{ h: big }]);
+    const json = JSON.stringify([{ h: big, shortTitle: "", props: "" }]);
     const meta = JSON.parse(mockCache.store.get(META_KEY));
     expect(meta).toEqual({ chunks: 3, length: json.length });
     const parts = [0, 1, 2].map((i) => mockCache.store.get(CHUNK_KEY(i)));
@@ -189,7 +189,7 @@ describe("doGet response cache", () => {
     stubSheetValues([["h"], [value]]);
     doGet({ parameter: {} });
 
-    const json = JSON.stringify([{ h: value }]);
+    const json = JSON.stringify([{ h: value, shortTitle: "", props: "" }]);
     const meta = JSON.parse(mockCache.store.get(META_KEY));
     expect(meta.chunks).toBe(2);
     expect(mockCache.store.get(CHUNK_KEY(0)).length).toBe(20001);
@@ -208,7 +208,7 @@ describe("doGet response cache", () => {
     doGet({ parameter: {} });
     expect(global.SpreadsheetApp.openById).toHaveBeenCalledTimes(2);
     expect(mockContentService.setContent).toHaveBeenLastCalledWith(
-      JSON.stringify([{ h: "changed" }])
+      JSON.stringify([{ h: "changed", shortTitle: "", props: "" }])
     );
   });
 
@@ -217,7 +217,7 @@ describe("doGet response cache", () => {
     doGet({ parameter: {} });
     expect(global.SpreadsheetApp.openById).toHaveBeenCalledTimes(1);
     expect(mockContentService.setContent).toHaveBeenLastCalledWith(
-      JSON.stringify([{ h: "v" }])
+      JSON.stringify([{ h: "v", shortTitle: "", props: "" }])
     );
   });
 
@@ -233,7 +233,7 @@ describe("doGet response cache", () => {
     doGet({ parameter: {} });
     expect(global.SpreadsheetApp.openById).toHaveBeenCalledTimes(2);
     expect(mockContentService.setContent).toHaveBeenLastCalledWith(
-      JSON.stringify([{ h: "changed" }])
+      JSON.stringify([{ h: "changed", shortTitle: "", props: "" }])
     );
   });
 
@@ -243,7 +243,7 @@ describe("doGet response cache", () => {
     });
     doGet({ parameter: {} });
     expect(mockContentService.setContent).toHaveBeenLastCalledWith(
-      JSON.stringify([{ h: "v" }])
+      JSON.stringify([{ h: "v", shortTitle: "", props: "" }])
     );
   });
 
@@ -253,7 +253,7 @@ describe("doGet response cache", () => {
     });
     doGet({ parameter: {} });
     expect(mockContentService.setContent).toHaveBeenLastCalledWith(
-      JSON.stringify([{ h: "v" }])
+      JSON.stringify([{ h: "v", shortTitle: "", props: "" }])
     );
   });
 });
@@ -361,10 +361,10 @@ describe("crawlRoom", () => {
 
   it("should clear the doGet response cache after rewriting the room sheet", () => {
     mockCache.store.set(
-      "items-response:v1:meta",
+      "items-response:v2:meta",
       JSON.stringify({ chunks: 1, length: 2 })
     );
-    mockCache.store.set("items-response:v1:0", "[]");
+    mockCache.store.set("items-response:v2:0", "[]");
     mockUrlFetchApp.fetch
       .mockReturnValueOnce({
         getContentText: () => JSON.stringify({ data: [{ id: 1, name: "collection1" }] }),
@@ -375,8 +375,8 @@ describe("crawlRoom", () => {
 
     crawlRoom();
 
-    expect(mockCache.store.has("items-response:v1:meta")).toBe(false);
-    expect(mockCache.store.has("items-response:v1:0")).toBe(false);
+    expect(mockCache.store.has("items-response:v2:meta")).toBe(false);
+    expect(mockCache.store.has("items-response:v2:0")).toBe(false);
   });
 
   it("should not fail when clearing the response cache throws", () => {
