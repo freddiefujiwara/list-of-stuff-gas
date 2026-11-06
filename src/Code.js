@@ -234,3 +234,194 @@ export function doGet(e) {
   writeItemsCache(result);
   return createJsonpOutput(result, e.parameter.callback);
 }
+
+// ---------------------------------------------------------------------------
+// Blog article draft generation (prototype).
+//
+// generateListArticleDraft() turns the item sheets into a Google Doc, so
+// blog-gas can render it as an article: one heading per sheet tab, one
+// sub-heading per genre, and for each item a text line followed by the
+// item URL as its own standalone paragraph (the shape blog-gas turns
+// into a link card). The output is one fixed dummy document (a staging
+// dummy article) whose ID is kept in the script property
+// LIST_ARTICLE_DUMMY_DOC_ID; every run replaces its body. The generator
+// is manual-run: setupListArticleTrigger() installs the every-6-hours
+// trigger, and is itself run manually, only after the dummy output has
+// been verified.
+//
+// Privacy rules for this public-facing draft: per-item prices are fine,
+// but no grand total or sum is ever written, and the subscriptions
+// section lists service names only (no amounts, no school names).
+// ---------------------------------------------------------------------------
+
+const LIST_ARTICLE_DRAFT_FOLDER_ID = '1tTl57xXMEYIqKmo8L0EbtRj7N1VfrNAC';
+const LIST_ARTICLE_DUMMY_DOC_PROPERTY = 'LIST_ARTICLE_DUMMY_DOC_ID';
+
+const LIST_ARTICLE_TABS = [
+  { sheet: 'room', heading: '楽天ROOM' },
+  { sheet: 'workman', heading: 'ワークマン' },
+  { sheet: 'variety', heading: 'バラエティ（ダイソー・100均）' },
+  { sheet: 'others', heading: 'その他' },
+];
+
+// Format a price cell ("2029", 2029, "¥4,380") for display; blank or
+// non-numeric cells produce no price text.
+const formatItemPrice = value => {
+  if (value === null || value === undefined || String(value).trim() === '') {
+    return '';
+  }
+  const n = Number(String(value).replace(/[^\d.-]/g, ''));
+  if (!isFinite(n)) {
+    return '';
+  }
+  return `¥${Math.round(n).toLocaleString('en-US')}`;
+};
+
+// One display line for an item: title, price, unit (only when > 1) and
+// comment. Never any total.
+const buildItemLine = item => {
+  const title = String(item.title ?? '').trim();
+  const details = [];
+  const price = formatItemPrice(item.price);
+  if (price) {
+    details.push(price);
+  }
+  const unit = Number(item.unit);
+  if (isFinite(unit) && unit > 1) {
+    details.push(`×${unit}`);
+  }
+  const head = details.length ? `${title}（${details.join(' ')}）` : title;
+  const comment = String(item.comment ?? '').trim();
+  return comment ? `${head} ${comment}` : head;
+};
+
+// Build the whole article as a flat list of blocks:
+// { type: 'heading1' | 'heading2' | 'text' | 'link', text }.
+// Items keep sheet order within each genre; genres appear in first-seen
+// order. The subscriptions section comes last, names only.
+const buildListArticleBlocks = (itemsByTab, subscriptionNames) => {
+  const blocks = [];
+  const push = (type, text) => blocks.push({ type, text });
+
+  LIST_ARTICLE_TABS.forEach(({ sheet, heading }) => {
+    push('heading1', heading);
+    const items = (itemsByTab[sheet] || []).filter(
+      item => String(item.title ?? '').trim() !== ''
+    );
+    const genreOrder = [];
+    const byGenre = new Map();
+    items.forEach(item => {
+      const genre = String(item.genre ?? '').trim() || 'その他';
+      if (!byGenre.has(genre)) {
+        byGenre.set(genre, []);
+        genreOrder.push(genre);
+      }
+      byGenre.get(genre).push(item);
+    });
+    genreOrder.forEach(genre => {
+      push('heading2', genre);
+      byGenre.get(genre).forEach(item => {
+        push('text', buildItemLine(item));
+        const url = String(item.url ?? '').trim();
+        if (url) {
+          push('link', url);
+        }
+      });
+    });
+  });
+
+  push('heading1', 'サブスクリプション');
+  subscriptionNames.forEach(name => push('text', name));
+  return blocks;
+};
+
+// Service names from the subscriptions sheet's raw values (header row
+// included). Amounts are never read into the output. Header, blank,
+// total and school rows are skipped: the draft is public-facing.
+const extractSubscriptionNames = values => {
+  const objects = sheetValuesToObjects(values.slice());
+  return objects
+    .map(obj => String(obj.Service ?? '').trim())
+    .filter(
+      name =>
+        name !== '' &&
+        !/合計|total/i.test(name) &&
+        !/学校|中学校|高等学校/.test(name)
+    );
+};
+
+// Read every source sheet up front, so the Doc body is only replaced
+// once the full content exists (fetch-before-clear, same pattern as
+// crawlRoom).
+const readListArticleSource = () => {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const itemsByTab = {};
+  LIST_ARTICLE_TABS.forEach(({ sheet }) => {
+    const values = ss.getSheetByName(sheet).getDataRange().getValues();
+    itemsByTab[sheet] = sheetValuesToObjects(values.slice());
+  });
+  const subscriptionValues = ss
+    .getSheetByName('subscriptions')
+    .getDataRange()
+    .getValues();
+  return {
+    itemsByTab,
+    subscriptionNames: extractSubscriptionNames(subscriptionValues),
+  };
+};
+
+// The one fixed dummy document the generator writes into. Created in
+// the blog drafts folder on first use; its ID is stored in a script
+// property so every later run reuses (and replaces) the same Doc.
+const getListArticleDoc = () => {
+  const properties = PropertiesService.getScriptProperties();
+  const docId = properties.getProperty(LIST_ARTICLE_DUMMY_DOC_PROPERTY);
+  if (docId) {
+    return DocumentApp.openById(docId);
+  }
+  const doc = DocumentApp.create('持ち物リスト（試作）');
+  DriveApp.getFileById(doc.getId()).moveTo(
+    DriveApp.getFolderById(LIST_ARTICLE_DRAFT_FOLDER_ID)
+  );
+  properties.setProperty(LIST_ARTICLE_DUMMY_DOC_PROPERTY, doc.getId());
+  return doc;
+};
+
+export function generateListArticleDraft() {
+  // Build the entire content in memory before touching the Doc, so a
+  // failed read can never leave a half-written document behind.
+  const { itemsByTab, subscriptionNames } = readListArticleSource();
+  const blocks = buildListArticleBlocks(itemsByTab, subscriptionNames);
+
+  const doc = getListArticleDoc();
+  const body = doc.getBody();
+  body.clear();
+  blocks.forEach(({ type, text }) => {
+    const paragraph = body.appendParagraph(text);
+    if (type === 'heading1') {
+      paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING1);
+    } else if (type === 'heading2') {
+      paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    }
+  });
+  doc.saveAndClose();
+  Logger.log(`Updated list article draft: ${doc.getUrl()}`);
+  return doc.getUrl();
+}
+
+// Install the every-6-hours trigger for generateListArticleDraft().
+// Idempotent: all existing triggers for the handler are deleted first,
+// so re-running this can never stack duplicates. Run manually, and only
+// after the dummy document's output has been verified — nothing calls
+// this automatically.
+export function setupListArticleTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(trigger => trigger.getHandlerFunction() === 'generateListArticleDraft')
+    .forEach(trigger => ScriptApp.deleteTrigger(trigger));
+  ScriptApp.newTrigger('generateListArticleDraft')
+    .timeBased()
+    .everyHours(6)
+    .create();
+}
+
+export { buildItemLine, buildListArticleBlocks, extractSubscriptionNames };
