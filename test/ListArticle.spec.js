@@ -4,7 +4,6 @@ import {
   buildListArticleBlocks,
   extractSubscriptions,
   generateListArticleDraft,
-  headingAnchorId,
   normalizeArticleUrl,
   setupListArticleTrigger,
 } from "../src/Code.js";
@@ -122,29 +121,18 @@ const genreLinks = blocks
 expect(genreLinks[0]).toBe("https://item.rakuten.co.jp/example/1/");
 });
 
-describe("headingAnchorId", () => {
-it("matches the blog front-end's FNV-1a heading anchors", () => {
-expect(headingAnchorId("【住】暮らしにまつわる物")).toBe("h-fa943fd3");
-expect(headingAnchorId("【食】キッチンにまつわる物")).toBe("h-9d826523");
-expect(headingAnchorId("サブスクリプション")).toBe("h-e2ae72d0");
-});
-});
-
-it("puts a genre navigation row right above every section heading", () => {
+it("puts a [[目次]] marker directly under every section heading", () => {
 const blocks = buildListArticleBlocks(itemsByTab, [
 { name: "Suno", url: "https://suno.com/" },
 ]);
-const navs = blocks.filter((b) => b.type === "nav");
-expect(navs.length).toBe(3);
-expect(navs[0].segments).toEqual([
-{ label: "暮らし", anchor: "#h-ff42aa51" },
-{ label: "服", anchor: "#h-089ec8d8" },
-{ label: "サブスクリプション", anchor: "#h-e2ae72d0" },
-]);
-// each nav sits directly before its heading
+const tocs = blocks.filter((b) => b.type === "toc");
+expect(tocs.length).toBe(3);
+// each toc sits directly after its heading
 blocks.forEach((b, i) => {
-if (b.type === "heading2") expect(blocks[i - 1].type).toBe("nav");
+if (b.type === "heading2") expect(blocks[i + 1].type).toBe("toc");
 });
+// and no item or service name is a heading, so the TOC lists genres only
+expect(blocks.some((b) => b.type === "heading3")).toBe(false);
 });
 
 it("puts each item's numbered name directly above its card", () => {
@@ -155,27 +143,24 @@ const start = blocks.findIndex(
 expect(blocks.slice(start, start + 7)).toEqual([
 { type: "heading2", text: "暮らしにまつわる物" },
 { type: "toc" },
-{ type: "heading3", text: "1. クリップライト" },
+{ type: "text", text: "1. クリップライト" },
 { type: "link", text: "https://item.rakuten.co.jp/example/1/" },
 { type: "text", text: "机用" },
-{ type: "heading3", text: "2. 手袋" },
+{ type: "text", text: "2. 手袋" },
 {
 type: "link",
 text: "https://www.google.com/search?q=%E3%83%AF%E3%83%BC%E3%82%AF%E3%83%9E%E3%83%B3%20%E6%89%8B%E8%A2%8B",
 },
 ]);
-// numbering restarts per genre, and URL-less items get a heading too
+// numbering restarts per genre, and URL-less items get a numbered line too
 const clothesStart = blocks.findIndex(
 (b) => b.type === "heading2" && b.text === "服"
 );
 expect(blocks[clothesStart + 2]).toEqual({
-type: "heading3",
+type: "text",
 text: "1. スリッポン",
 });
-expect(blocks[clothesStart + 4]).toEqual({
-type: "heading3",
-text: "2. メモ帳",
-});
+expect(blocks[clothesStart + 4].text.startsWith("2. メモ帳")).toBe(true);
 });
 
 it("puts the comment below the card and encodes search URLs", () => {
@@ -196,7 +181,7 @@ expect(links).toContain(
 it("falls back to the full text line for items without a URL", () => {
 const blocks = buildListArticleBlocks(itemsByTab, []);
 const texts = blocks.filter((b) => b.type === "text").map((b) => b.text);
-expect(texts).toContain("メモ帳（¥100） 予備");
+expect(texts).toContain("2. メモ帳（¥100） 予備");
 });
 
 it("never writes a total or a sum of prices", () => {
@@ -217,9 +202,9 @@ const tail = blocks.slice(-5);
 expect(tail).toEqual([
 { type: "heading2", text: "サブスクリプション"},
 { type: "toc" },
-{ type: "heading3", text: "NHK"},
+{ type: "text", text: "NHK"},
 { type: "link", text: "https://www.nhk.or.jp/"},
-{ type: "heading3", text: "DAZN"},
+{ type: "text", text: "DAZN"},
 ]);
 });
 });
