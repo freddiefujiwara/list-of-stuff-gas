@@ -239,10 +239,11 @@ export function doGet(e) {
 // Blog article draft generation (prototype).
 //
 // generateListArticleDraft() turns the item sheets into a Google Doc, so
-// blog-gas can render it as an article: one heading per sheet tab, one
-// sub-heading per genre, and for each item a text line followed by the
-// item URL as its own standalone paragraph (the shape blog-gas turns
-// into a link card). The output is one fixed dummy document (a staging
+// blog-gas can render it as an article: items from every tab are merged
+// and grouped under one heading per genre, and for each item the URL
+// comes first as its own standalone paragraph (the shape blog-gas turns
+// into a link card), followed by the item's comment as plain text below
+// the card. The output is one fixed dummy document (a staging
 // dummy article) whose ID is kept in the script property
 // LIST_ARTICLE_DUMMY_DOC_ID; every run replaces its body. The generator
 // is manual-run: setupListArticleTrigger() installs the every-6-hours
@@ -251,18 +252,14 @@ export function doGet(e) {
 //
 // Privacy rules for this public-facing draft: per-item prices are fine,
 // but no grand total or sum is ever written, and the subscriptions
-// section lists service names only (no amounts, no school names).
+// section lists service names and official-site URLs only (no amounts,
+// no school names).
 // ---------------------------------------------------------------------------
 
 const LIST_ARTICLE_DRAFT_FOLDER_ID = '1tTl57xXMEYIqKmo8L0EbtRj7N1VfrNAC';
 const LIST_ARTICLE_DUMMY_DOC_PROPERTY = 'LIST_ARTICLE_DUMMY_DOC_ID';
 
-const LIST_ARTICLE_TABS = [
-  { sheet: 'room', heading: '楽天ROOM' },
-  { sheet: 'workman', heading: 'ワークマン' },
-  { sheet: 'variety', heading: 'バラエティ（ダイソー・100均）' },
-  { sheet: 'others', heading: 'その他' },
-];
+const LIST_ARTICLE_SHEETS = ['room', 'workman', 'variety', 'others'];
 
 // Format a price cell ("2029", 2029, "¥4,380") for display; blank or
 // non-numeric cells produce no price text.
@@ -295,55 +292,84 @@ const buildItemLine = item => {
   return comment ? `${head} ${comment}` : head;
 };
 
+// URLs in the sheet can contain raw Japanese text and spaces (Google
+// search links). Written into the Doc as-is they are not recognised as
+// standalone URL paragraphs, so they never become link cards. Encode
+// exactly the characters that break URL recognition — spaces and
+// non-ASCII — and leave everything else (including existing %XX
+// sequences) untouched.
+const normalizeArticleUrl = url =>
+  String(url).replace(/ |[^\x00-\x7F]/g, ch =>
+    ch === ' ' ? '%20' : encodeURIComponent(ch)
+  );
+
 // Build the whole article as a flat list of blocks:
 // { type: 'heading1' | 'heading2' | 'text' | 'link', text }.
-// Items keep sheet order within each genre; genres appear in first-seen
-// order. The subscriptions section comes last, names only.
-const buildListArticleBlocks = (itemsByTab, subscriptionNames) => {
+// Items from all tabs are merged and grouped by genre; genres appear in
+// first-seen order and items keep sheet order within each genre. An
+// item with a URL renders as a link card, so only its comment follows
+// as text; an item without a URL falls back to the full text line.
+// The subscriptions section comes last: names, plus a link card for
+// services whose sheet row carries a URL. Amounts never appear.
+const buildListArticleBlocks = (itemsByTab, subscriptions) => {
   const blocks = [];
   const push = (type, text) => blocks.push({ type, text });
 
-  LIST_ARTICLE_TABS.forEach(({ sheet, heading }) => {
-    push('heading1', heading);
-    const items = (itemsByTab[sheet] || []).filter(
-      item => String(item.title ?? '').trim() !== ''
-    );
-    const genreOrder = [];
-    const byGenre = new Map();
-    items.forEach(item => {
-      const genre = String(item.genre ?? '').trim() || 'その他';
-      if (!byGenre.has(genre)) {
-        byGenre.set(genre, []);
-        genreOrder.push(genre);
-      }
-      byGenre.get(genre).push(item);
-    });
-    genreOrder.forEach(genre => {
-      push('heading2', genre);
-      byGenre.get(genre).forEach(item => {
-        push('text', buildItemLine(item));
-        const url = String(item.url ?? '').trim();
-        if (url) {
-          push('link', url);
+  const genreOrder = [];
+  const byGenre = new Map();
+  LIST_ARTICLE_SHEETS.forEach(sheet => {
+    (itemsByTab[sheet] || [])
+      .filter(item => String(item.title ?? '').trim() !== '')
+      .forEach(item => {
+        const genre = String(item.genre ?? '').trim() || 'その他';
+        if (!byGenre.has(genre)) {
+          byGenre.set(genre, []);
+          genreOrder.push(genre);
         }
+        byGenre.get(genre).push(item);
       });
+  });
+
+  genreOrder.forEach(genre => {
+    push('heading2', genre);
+    byGenre.get(genre).forEach(item => {
+      const url = String(item.url ?? '').trim();
+      if (!url) {
+        push('text', buildItemLine(item));
+        return;
+      }
+      push('link', normalizeArticleUrl(url));
+      const comment = String(item.comment ?? '').trim();
+      if (comment) {
+        push('text', comment);
+      }
     });
   });
 
-  push('heading1', 'サブスクリプション');
-  subscriptionNames.forEach(name => push('text', name));
+  push('heading2', 'サブスクリプション');
+  (subscriptions || []).forEach(({ name, url }) => {
+    push('text', name);
+    const clean = String(url ?? '').trim();
+    if (clean) {
+      push('link', normalizeArticleUrl(clean));
+    }
+  });
   return blocks;
 };
 
-// Service names from the subscriptions sheet's raw values (header row
-// included). Amounts are never read into the output. Header, blank,
-// total and school rows are skipped: the draft is public-facing.
-const extractSubscriptionNames = values => {
+// Services from the subscriptions sheet's raw values (header row
+// included), as { name, url } pairs. Amounts are never read into the
+// output. Header, blank, total and school rows are skipped: the draft
+// is public-facing.
+const extractSubscriptions = values => {
   const objects = sheetValuesToObjects(values.slice());
   return objects
-    .map(obj => String(obj.Service ?? '').trim())
+    .map(obj => ({
+      name: String(obj.Service ?? '').trim(),
+      url: String(obj.URL ?? '').trim(),
+    }))
     .filter(
-      name =>
+      ({ name }) =>
         name !== '' &&
         !/合計|total/i.test(name) &&
         !/学校|中学校|高等学校/.test(name)
@@ -356,7 +382,7 @@ const extractSubscriptionNames = values => {
 const readListArticleSource = () => {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   const itemsByTab = {};
-  LIST_ARTICLE_TABS.forEach(({ sheet }) => {
+  LIST_ARTICLE_SHEETS.forEach(sheet => {
     const values = ss.getSheetByName(sheet).getDataRange().getValues();
     itemsByTab[sheet] = sheetValuesToObjects(values.slice());
   });
@@ -366,7 +392,7 @@ const readListArticleSource = () => {
     .getValues();
   return {
     itemsByTab,
-    subscriptionNames: extractSubscriptionNames(subscriptionValues),
+    subscriptions: extractSubscriptions(subscriptionValues),
   };
 };
 
@@ -390,8 +416,8 @@ const getListArticleDoc = () => {
 export function generateListArticleDraft() {
   // Build the entire content in memory before touching the Doc, so a
   // failed read can never leave a half-written document behind.
-  const { itemsByTab, subscriptionNames } = readListArticleSource();
-  const blocks = buildListArticleBlocks(itemsByTab, subscriptionNames);
+  const { itemsByTab, subscriptions } = readListArticleSource();
+  const blocks = buildListArticleBlocks(itemsByTab, subscriptions);
 
   const doc = getListArticleDoc();
   const body = doc.getBody();
@@ -424,4 +450,9 @@ export function setupListArticleTrigger() {
     .create();
 }
 
-export { buildItemLine, buildListArticleBlocks, extractSubscriptionNames };
+export {
+  buildItemLine,
+  buildListArticleBlocks,
+  extractSubscriptions,
+  normalizeArticleUrl,
+};

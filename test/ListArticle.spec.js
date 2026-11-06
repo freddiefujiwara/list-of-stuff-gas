@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildItemLine,
   buildListArticleBlocks,
-  extractSubscriptionNames,
+  extractSubscriptions,
   generateListArticleDraft,
+  normalizeArticleUrl,
   setupListArticleTrigger,
 } from "../src/Code.js";
 
@@ -36,6 +37,25 @@ expect(buildItemLine({ title: "メモ", unit: 3})).toBe("メモ（×3）");
 });
 });
 
+describe("normalizeArticleUrl", () => {
+it("percent-encodes raw Japanese text and spaces", () => {
+expect(
+normalizeArticleUrl("https://www.google.com/search?q=ワークマン 手袋")
+).toBe(
+"https://www.google.com/search?q=%E3%83%AF%E3%83%BC%E3%82%AF%E3%83%9E%E3%83%B3%20%E6%89%8B%E8%A2%8B"
+);
+});
+
+it("leaves plain ASCII URLs and existing encodings untouched", () => {
+expect(normalizeArticleUrl("https://example.com/a?x=1&y=2")).toBe(
+"https://example.com/a?x=1&y=2"
+);
+expect(normalizeArticleUrl("https://example.com/%E3%83%AF")).toBe(
+"https://example.com/%E3%83%AF"
+);
+});
+});
+
 describe("buildListArticleBlocks", () => {
 const itemsByTab = {
 room: [
@@ -62,47 +82,68 @@ comment: "",
 title: "手袋",
 price: 580,
 unit: 1,
+genre: "暮らしにまつわる物",
+url: "https://www.google.com/search?q=ワークマン 手袋",
+comment: "",
+},
+{
+title: "メモ帳",
+price: 100,
+unit: 1,
 genre: "服",
 url: "",
-comment: "",
+comment: "予備",
 },
 ],
 variety: [],
 others: [],
 };
 
-it("emits a heading per tab and a sub-heading per genre", () => {
+it("groups items from all tabs under one heading per genre", () => {
 const blocks = buildListArticleBlocks(itemsByTab, []);
 const headings = blocks
-.filter((b) => b.type === "heading1")
-.map((b) => b.text);
-expect(headings).toEqual([
-"楽天ROOM",
-"ワークマン",
-"バラエティ（ダイソー・100均）",
-"その他",
-"サブスクリプション",
-]);
-const subHeadings = blocks
 .filter((b) => b.type === "heading2")
 .map((b) => b.text);
-expect(subHeadings).toEqual(["暮らしにまつわる物", "服"]);
+expect(headings).toEqual([
+"暮らしにまつわる物",
+"服",
+"サブスクリプション",
+]);
+expect(blocks.some((b) => b.type === "heading1")).toBe(false);
+// the genre section holds the room item first, then the workman one
+const genreStart = blocks.findIndex(
+(b) => b.type === "heading2" && b.text === "暮らしにまつわる物"
+);
+const genreLinks = blocks
+.slice(genreStart)
+.filter((b) => b.type === "link")
+.map((b) => b.text);
+expect(genreLinks[0]).toBe("https://item.rakuten.co.jp/example/1/");
 });
 
-it("puts each item URL in its own link block and skips title-less and URL-less items appropriately", () => {
+it("puts the comment below the card and encodes search URLs", () => {
 const blocks = buildListArticleBlocks(itemsByTab, []);
-const links = blocks.filter((b) => b.type === "link").map((b) => b.text);
-expect(links).toEqual([
-"https://item.rakuten.co.jp/example/1/",
-"https://workman.jp/shop/g/1",
-]);
+const cardIndex = blocks.findIndex(
+(b) => b.type === "link" && b.text === "https://item.rakuten.co.jp/example/1/"
+);
+expect(blocks[cardIndex + 1]).toEqual({ type: "text", text: "机用" });
+// no caption line with title and price is emitted for carded items
 const texts = blocks.filter((b) => b.type === "text").map((b) => b.text);
-expect(texts).toContain("クリップライト（¥2,029） 机用");
-expect(texts).toContain("手袋（¥580）");
+expect(texts).not.toContain("クリップライト（¥2,029） 机用");
+const links = blocks.filter((b) => b.type === "link").map((b) => b.text);
+expect(links).toContain(
+"https://www.google.com/search?q=%E3%83%AF%E3%83%BC%E3%82%AF%E3%83%9E%E3%83%B3%20%E6%89%8B%E8%A2%8B"
+);
+});
+
+it("falls back to the full text line for items without a URL", () => {
+const blocks = buildListArticleBlocks(itemsByTab, []);
+const texts = blocks.filter((b) => b.type === "text").map((b) => b.text);
+expect(texts).toContain("メモ帳（¥100） 予備");
 });
 
 it("never writes a total or a sum of prices", () => {
-const blocks = buildListArticleBlocks(itemsByTab, ["NHK"]);
+const blocks = buildListArticleBlocks(itemsByTab, []);
 const allText = blocks.map((b) => b.text).join("\n");
 expect(allText).not.toContain("合計");
 // 2029 + 1500 + 580 = 4109 must not appear anywhere
@@ -110,28 +151,35 @@ expect(allText).not.toContain("4,109");
 expect(allText).not.toContain("4109");
 });
 
-it("ends with a subscriptions section listing names only", () => {
-const blocks = buildListArticleBlocks(itemsByTab, ["NHK", "DAZN"]);
-const tail = blocks.slice(-3);
+it("ends with a subscriptions section: name, then its URL when present", () => {
+const blocks = buildListArticleBlocks(itemsByTab, [
+{ name: "NHK", url: "https://www.nhk.or.jp/" },
+{ name: "DAZN", url: "" },
+]);
+const tail = blocks.slice(-4);
 expect(tail).toEqual([
-{ type: "heading1", text: "サブスクリプション"},
+{ type: "heading2", text: "サブスクリプション"},
 { type: "text", text: "NHK"},
+{ type: "link", text: "https://www.nhk.or.jp/"},
 { type: "text", text: "DAZN"},
 ]);
 });
 });
 
-describe("extractSubscriptionNames", () => {
-it("returns service names only, skipping the header, blanks, the total row and school rows", () => {
+describe("extractSubscriptions", () => {
+it("returns name/URL pairs, skipping the header, blanks, the total row and school rows", () => {
 const values = [
-["Service", "Purpose", "Yearly Cost", "Monthly Cost", "Ratio"],
-["NHK", "テレビ", "¥21,765", "¥1,814", "1.55%"],
-["", "", "", "", ""],
-["武南中学校", "学費", "¥931,986", "¥77,665", "66.4%"],
-["合計", "", "¥1,403,230", "¥116,936", "100%"],
-["DAZN", "野球", "¥27,600", "¥2,300", "1.97%"],
+["Service", "Purpose", "Yearly Cost", "Monthly Cost", "Ratio", "URL"],
+["NHK", "テレビ", "¥21,765", "¥1,814", "1.55%", "https://www.nhk.or.jp/"],
+["", "", "", "", "", ""],
+["武南中学校", "学費", "¥931,986", "¥77,665", "66.4%", ""],
+["合計", "", "¥1,403,230", "¥116,936", "100%", ""],
+["DAZN", "野球", "¥27,600", "¥2,300", "1.97%", ""],
 ];
-expect(extractSubscriptionNames(values)).toEqual(["NHK", "DAZN"]);
+expect(extractSubscriptions(values)).toEqual([
+{ name: "NHK", url: "https://www.nhk.or.jp/" },
+{ name: "DAZN", url: "" },
+]);
 });
 
 it("does not mutate the caller's values array", () => {
@@ -139,7 +187,7 @@ const values = [
 ["Service", "Purpose"],
 ["NHK", "テレビ"],
 ];
-extractSubscriptionNames(values);
+extractSubscriptions(values);
 expect(values).toHaveLength(2);
 });
 });
@@ -154,8 +202,8 @@ describe("generateListArticleDraft", () => {
     variety: [["title", "image", "url", "price", "unit", "genre", "comment"]],
     others: [["title", "image", "url", "price", "unit", "genre", "comment"]],
     subscriptions: [
-      ["Service", "Purpose", "Yearly Cost", "Monthly Cost", "Ratio"],
-      ["NHK", "テレビ", "¥21,765", "¥1,814", "1.55%"],
+      ["Service", "Purpose", "Yearly Cost", "Monthly Cost", "Ratio", "URL"],
+      ["NHK", "テレビ", "¥21,765", "¥1,814", "1.55%", "https://www.nhk.or.jp/"],
     ],
   };
 
@@ -211,9 +259,11 @@ describe("generateListArticleDraft", () => {
     expect(mockBody.clear).toHaveBeenCalled();
     expect(url).toBe("https://docs.example/doc-id");
     const written = mockBody.appendParagraph.mock.calls.map((c) => c[0]);
-    expect(written).toContain("クリップライト（¥2,029） 机用");
     expect(written).toContain("https://example.com/1");
+    expect(written).toContain("机用");
+    expect(written).not.toContain("クリップライト（¥2,029） 机用");
     expect(written).toContain("NHK");
+    expect(written).toContain("https://www.nhk.or.jp/");
     expect(written.join("\n")).not.toContain("21,765");
   });
 
