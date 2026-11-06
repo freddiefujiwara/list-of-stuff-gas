@@ -303,27 +303,8 @@ const normalizeArticleUrl = url =>
     ch === ' ' ? '%20' : encodeURIComponent(ch)
   );
 
-// The blog front-end anchors every heading at "#h-<fnv1a32 of its text>"
-// (see blog's hashHeadingText). Reproducing the same hash here lets the
-// generated article link straight to its own sections.
-const headingAnchorId = text => {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return `h-${(hash >>> 0).toString(16).padStart(8, '0')}`;
-};
-
-// Short label for the genre navigation: drop the "にまつわる物" tail.
-const genreNavLabel = heading =>
-  heading.endsWith('にまつわる物')
-    ? heading.slice(0, -'にまつわる物'.length)
-    : heading;
-
 // Build the whole article as a flat list of blocks:
-// { type: 'heading1' | 'heading2' | 'heading3' | 'text' | 'link' | 'toc', text }
-// or { type: 'nav', segments: [{ label, anchor }] }.
+// { type: 'heading1' | 'heading2' | 'text' | 'link' | 'toc', text }.
 // Items from all tabs are merged and grouped by genre; genres appear in
 // first-seen order and items keep sheet order within each genre. An
 // item with a URL renders as a link card, so only its comment follows
@@ -349,31 +330,22 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
       });
   });
 
-  // A genre navigation row (links to every section) goes right above
-  // each genre heading, so readers can jump between genres mid-article.
-  const sectionHeadings = [...genreOrder, 'サブスクリプション'];
-  const navSegments = sectionHeadings.map(heading => ({
-    label: genreNavLabel(heading),
-    anchor: `#${headingAnchorId(heading)}`,
-  }));
-  const pushNav = () => blocks.push({ type: 'nav', segments: navSegments });
-
   genreOrder.forEach(genre => {
-    pushNav();
     push('heading2', genre);
     push('toc');
-    // Each item's name, numbered within the genre, becomes a level-3
-    // heading directly above its card, so the article's [[目次]] TOCs
-    // (one per genre, from the 'toc' block above) list every item.
-    // The comment follows below the card.
+    // Each item's name, numbered within the genre, sits directly above
+    // its card as plain text — deliberately NOT a heading, so the
+    // article's [[目次]] TOCs (one per genre, from the 'toc' block
+    // above) list the genres only, not every item. The comment
+    // follows below the card.
     byGenre.get(genre).forEach((item, idx) => {
       const title = String(item.title ?? '').trim();
-      push('heading3', `${idx + 1}. ${title}`);
       const url = String(item.url ?? '').trim();
       if (!url) {
-        push('text', buildItemLine(item));
+        push('text', `${idx + 1}. ${buildItemLine(item)}`);
         return;
       }
+      push('text', `${idx + 1}. ${title}`);
       push('link', normalizeArticleUrl(url));
       const comment = String(item.comment ?? '').trim();
       if (comment) {
@@ -382,11 +354,10 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
     });
   });
 
-  pushNav();
   push('heading2', 'サブスクリプション');
   push('toc');
   (subscriptions || []).forEach(({ name, url }) => {
-    push('heading3', name);
+    push('text', name);
     const clean = String(url ?? '').trim();
     if (clean) {
       push('link', normalizeArticleUrl(clean));
@@ -462,21 +433,11 @@ export function generateListArticleDraft() {
   body.clear();
   blocks.forEach(block => {
     const { type, text } = block;
-    if (type === 'nav') {
-      const paragraph = body.appendParagraph('');
-      block.segments.forEach((segment, idx) => {
-        if (idx > 0) paragraph.appendText(' ｜ ');
-        paragraph.appendText(segment.label).setLinkUrl(segment.anchor);
-      });
-      return;
-    }
     const paragraph = body.appendParagraph(type === 'toc' ? '[[目次]]' : text);
     if (type === 'heading1') {
       paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING1);
     } else if (type === 'heading2') {
       paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-    } else if (type === 'heading3') {
-      paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING3);
     }
   });
   doc.saveAndClose();
@@ -499,4 +460,4 @@ export function setupListArticleTrigger() {
     .create();
 }
 
-export { buildItemLine, buildListArticleBlocks, extractSubscriptions, headingAnchorId, normalizeArticleUrl };
+export { buildItemLine, buildListArticleBlocks, extractSubscriptions, normalizeArticleUrl };
