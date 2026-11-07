@@ -564,4 +564,313 @@ export function setupListArticleTrigger() {
     .create();
 }
 
-export { buildItemLine, buildListArticleBlocks, extractSubscriptions, normalizeArticleUrl, splitTitle };
+// ---------------------------------------------------------------------------
+// Admin API (doPost) for the list-of-stuff-admin site.
+//
+// The room sheet is rewritten by crawlRoom() from Rakuten ROOM, so the
+// admin API manages only the hand-edited item sheets: workman, variety
+// and others. Authentication mirrors the other private sites (alarm,
+// health, tweet): the owner's Google ID token, verified against the
+// AVAILABLE_GMAILS allowlist, or a temporary share token issued by the
+// owner (owner-equivalent; sessions are stored hashed in a
+// share_sessions sheet in this spreadsheet). Actions:
+//   { action: "list_items", sheet }             -> the sheet's items
+//   { action: "create_item", sheet, item }      -> append one row
+//   { action: "update_item", sheet, row, item } -> rewrite one data row
+//   { action: "delete_item", sheet, row }       -> delete one data row
+//   { action: "issue_share" }                   -> owner only
+//   { action: "revoke_share" }                  -> owner only
+// Every mutation clears the doGet response cache, so the public items
+// API and everything built on it reflects the edit right away.
+// ---------------------------------------------------------------------------
+
+const ADMIN_SHEETS = ['workman', 'variety', 'others'];
+
+const scriptProperty_ = name =>
+  PropertiesService.getScriptProperties().getProperty(name);
+
+const allowedEmails_ = () =>
+  (scriptProperty_('AVAILABLE_GMAILS') || '')
+    .split(',')
+    .map(v => v.trim().toLowerCase())
+    .filter(v => v.length > 0);
+
+// Throws an Error when the token is missing, invalid, or not allowed.
+const verifyIdToken_ = idToken => {
+  if (!idToken) throw new Error('missing id token');
+  const clientId = scriptProperty_('GOOGLE_OAUTH_CLIENT_ID');
+  const res = UrlFetchApp.fetch(
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`,
+    { muteHttpExceptions: true }
+  );
+  if (res.getResponseCode() !== 200) throw new Error('token verification failed');
+  const payload = JSON.parse(res.getContentText());
+  if (payload.iss !== 'accounts.google.com' && payload.iss !== 'https://accounts.google.com') {
+    throw new Error('invalid iss');
+  }
+  if (payload.aud !== clientId) throw new Error('invalid aud');
+  const exp = Number(payload.exp || 0);
+  if (!exp || exp * 1000 <= Date.now()) throw new Error('token expired');
+  if (payload.email_verified !== true && payload.email_verified !== 'true') {
+    throw new Error('email not verified');
+  }
+  const email = String(payload.email || '').toLowerCase();
+  if (!email) throw new Error('missing email');
+  if (!allowedEmails_().includes(email)) throw new Error('forbidden email');
+  return email;
+};
+
+// --- Temporary share sessions (same scheme as the alarm site) ---
+const SHARE_SHEET_NAME = 'share_sessions';
+// One month, so the owner can hand the link over well in advance.
+const SHARE_TTL_SECONDS = 30 * 24 * 60 * 60;
+const SHARE_HEADERS = [
+  'token_hash',
+  'issued_at',
+  'expires_at',
+  'revoked_at',
+  'access_count',
+  'last_accessed_at',
+];
+
+const getShareSheet_ = () => {
+  const ss = SpreadsheetApp.openById(spreadsheetId_());
+  let sheet = ss.getSheetByName(SHARE_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHARE_SHEET_NAME);
+    sheet.appendRow(SHARE_HEADERS);
+  }
+  return sheet;
+};
+
+const hashShareToken_ = token =>
+  Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(token))
+    .map(byte => ((byte % 256) + 256) % 256)
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+
+const readShareRows_ = () => {
+  const sheet = getShareSheet_();
+  const values = sheet.getDataRange().getValues();
+  return { sheet, values };
+};
+
+const shareCellIso_ = value => {
+  if (!value) {
+    return '';
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  return String(value);
+};
+
+const revokeActiveShareSessions_ = nowIso => {
+  const { sheet, values } = readShareRows_();
+  values.forEach((row, index) => {
+    if (index === 0) {
+      return;
+    }
+    const revokedAt = shareCellIso_(row[3]);
+    const expiresAt = shareCellIso_(row[2]);
+    if (!revokedAt && expiresAt && expiresAt > nowIso) {
+      sheet.getRange(index + 1, 4).setValue(nowIso);
+    }
+  });
+};
+
+const issueShareSession_ = () => {
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const expiresIso = new Date(now.getTime() + SHARE_TTL_SECONDS * 1000).toISOString();
+  revokeActiveShareSessions_(nowIso);
+  const token = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+  getShareSheet_().appendRow([hashShareToken_(token), nowIso, expiresIso, '', 0, '']);
+  return {
+    share_token: token,
+    issued_at: nowIso,
+    expires_at: expiresIso,
+    ttl_seconds: SHARE_TTL_SECONDS,
+  };
+};
+
+const revokeShareSession_ = () => {
+  revokeActiveShareSessions_(new Date().toISOString());
+  return { revoked: true };
+};
+
+const validateShareToken_ = token => {
+  if (!token) {
+    return null;
+  }
+  const hash = hashShareToken_(token);
+  const { sheet, values } = readShareRows_();
+  const nowIso = new Date().toISOString();
+  for (let index = 1; index < values.length; index += 1) {
+    const row = values[index];
+    if (row[0] !== hash) {
+      continue;
+    }
+    if (shareCellIso_(row[3])) {
+      return null;
+    }
+    const expiresAt = shareCellIso_(row[2]);
+    if (!expiresAt || expiresAt <= nowIso) {
+      return null;
+    }
+    sheet.getRange(index + 1, 5).setValue(Number(row[4] || 0) + 1);
+    sheet.getRange(index + 1, 6).setValue(nowIso);
+    return { expires_at: expiresAt };
+  }
+  return null;
+};
+
+// --- Item CRUD on the hand-edited sheets ---
+
+// Only the hand-edited sheets may be touched; the room sheet is owned
+// by crawlRoom() and the subscriptions sheet stays sheet-edited.
+const adminSheet_ = name => {
+  if (!ADMIN_SHEETS.includes(name)) {
+    throw new Error(`sheet is not editable: ${name}`);
+  }
+  return getSheet(name);
+};
+
+const readAdminItems_ = name => {
+  const sheet = adminSheet_(name);
+  const values = sheet.getDataRange().getValues();
+  return values.slice(1).map((row, index) => ({
+    row: index + 2,
+    title: row[0] ?? '',
+    image: row[1] ?? '',
+    url: row[2] ?? '',
+    price: row[3] ?? '',
+    unit: row[4] ?? '',
+    genre: row[5] ?? '',
+    comment: row[6] ?? '',
+  }));
+};
+
+// Coerce one item payload into a sheet row in the fixed column order
+// (title, image, url, price, unit, genre, comment). Price and unit are
+// stored as numbers when they parse as one, blank otherwise.
+const normalizeItemRow_ = item => {
+  const src = item || {};
+  const text = v => (v === null || v === undefined ? '' : String(v));
+  const number = v => {
+    if (v === null || v === undefined || String(v).trim() === '') return '';
+    const n = Number(v);
+    return isFinite(n) ? n : '';
+  };
+  return [
+    text(src.title),
+    text(src.image),
+    text(src.url),
+    number(src.price),
+    number(src.unit),
+    text(src.genre),
+    text(src.comment),
+  ];
+};
+
+const checkedRow_ = (sheet, row) => {
+  const n = Number(row);
+  if (!Number.isInteger(n) || n < 2 || n > sheet.getLastRow()) {
+    throw new Error(`row out of range: ${row}`);
+  }
+  return n;
+};
+
+const createItem_ = (name, item) => {
+  const sheet = adminSheet_(name);
+  sheet.appendRow(normalizeItemRow_(item));
+  clearItemsCache();
+  return { row: sheet.getLastRow() };
+};
+
+const updateItem_ = (name, row, item) => {
+  const sheet = adminSheet_(name);
+  const n = checkedRow_(sheet, row);
+  sheet.getRange(n, 1, 1, 7).setValues([normalizeItemRow_(item)]);
+  clearItemsCache();
+  return { row: n };
+};
+
+const deleteItem_ = (name, row) => {
+  const sheet = adminSheet_(name);
+  const n = checkedRow_(sheet, row);
+  sheet.deleteRow(n);
+  clearItemsCache();
+  return { row: n };
+};
+
+const jsonOut_ = payload => {
+  const output = ContentService.createTextOutput();
+  output.setMimeType(ContentService.MimeType.JSON);
+  output.setContent(JSON.stringify(payload));
+  return output;
+};
+
+const authError_ = err => {
+  const message = (err && err.message) || 'unauthorized';
+  return jsonOut_({ ok: false, status: message === 'forbidden email' ? 403 : 401, error: message });
+};
+
+export function doPost(e) {
+  let body;
+  try {
+    body = JSON.parse((e && e.postData && e.postData.contents) || '');
+  } catch (err) {
+    return jsonOut_({ ok: false, error: 'invalid JSON body' });
+  }
+
+  // Issuing and revoking access links always requires the owner's
+  // Google ID token; a share token cannot mint more share tokens.
+  if (body.action === 'issue_share' || body.action === 'revoke_share') {
+    try {
+      verifyIdToken_(body.idToken);
+    } catch (err) {
+      return authError_(err);
+    }
+    const result = body.action === 'issue_share' ? issueShareSession_() : revokeShareSession_();
+    return jsonOut_({ ok: true, ...result });
+  }
+
+  // The remaining actions accept the owner's ID token or a share token
+  // from an issued access link (owner-equivalent).
+  let shareSession = null;
+  if (body.share_token) {
+    shareSession = validateShareToken_(body.share_token);
+    if (!shareSession) {
+      return jsonOut_({ ok: false, status: 401, error: 'share session expired or invalid' });
+    }
+  } else {
+    try {
+      verifyIdToken_(body.idToken);
+    } catch (err) {
+      return authError_(err);
+    }
+  }
+  const out = payload =>
+    shareSession ? { ...payload, _share: { expires_at: shareSession.expires_at } } : payload;
+
+  try {
+    if (body.action === 'list_items') {
+      return jsonOut_(out({ ok: true, sheet: body.sheet, items: readAdminItems_(body.sheet) }));
+    }
+    if (body.action === 'create_item') {
+      return jsonOut_(out({ ok: true, ...createItem_(body.sheet, body.item) }));
+    }
+    if (body.action === 'update_item') {
+      return jsonOut_(out({ ok: true, ...updateItem_(body.sheet, body.row, body.item) }));
+    }
+    if (body.action === 'delete_item') {
+      return jsonOut_(out({ ok: true, ...deleteItem_(body.sheet, body.row) }));
+    }
+  } catch (err) {
+    return jsonOut_({ ok: false, error: err.message });
+  }
+  return jsonOut_({ ok: false, error: 'unknown action' });
+}
+
+export { buildItemLine, buildListArticleBlocks, doPost, extractSubscriptions, issueShareSession_, normalizeArticleUrl, normalizeItemRow_, readAdminItems_, revokeShareSession_, splitTitle, validateShareToken_, verifyIdToken_ };
