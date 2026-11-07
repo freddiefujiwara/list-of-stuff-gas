@@ -253,6 +253,7 @@ describe("generateListArticleDraft", () => {
 
   let mockBody;
   let mockDoc;
+  let mockFile;
   let mockProperties;
 
   beforeEach(() => {
@@ -289,8 +290,13 @@ describe("generateListArticleDraft", () => {
       openById: vi.fn(() => mockDoc),
       ParagraphHeading: { HEADING1: "HEADING1", HEADING2: "HEADING2" },
     };
+    mockFile = {
+      moveTo: vi.fn(),
+      getName: vi.fn(() => "2021-02-16 全持ち物リスト、大公開！！"),
+      setName: vi.fn(),
+    };
     global.DriveApp = {
-      getFileById: vi.fn(() => ({ moveTo: vi.fn() })),
+      getFileById: vi.fn(() => mockFile),
       getFolderById: vi.fn(() => ({})),
     };
     global.Logger = { log: vi.fn() };
@@ -321,6 +327,16 @@ describe("generateListArticleDraft", () => {
     expect(global.DocumentApp.openById).toHaveBeenCalledWith("existing-id");
     expect(global.DocumentApp.create).not.toHaveBeenCalled();
     expect(mockBody.clear).toHaveBeenCalled();
+    expect(mockFile.setName).not.toHaveBeenCalled();
+  });
+
+  it("restores the published file name when the save reverts it", () => {
+    mockProperties.getProperty.mockReturnValue("existing-id");
+    mockFile.getName
+      .mockReturnValueOnce("2021-02-16 全持ち物リスト、大公開！！")
+      .mockReturnValue("持ち物リスト（試作）");
+    generateListArticleDraft();
+    expect(mockFile.setName).toHaveBeenCalledWith("2021-02-16 全持ち物リスト、大公開！！");
   });
 });
 
