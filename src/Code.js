@@ -533,6 +533,14 @@ export function generateListArticleDraft() {
   const blocks = buildListArticleBlocks(itemsByTab, subscriptions);
 
   const doc = getListArticleDoc();
+  // The Doc's file name is the article's public title. A regeneration
+  // rewrites only the body and must never change the name: the Doc
+  // was created as 持ち物リスト（試作） and renamed for publication,
+  // and a save once restored the creation name over the published
+  // one (2026-11-07). Capture the current name and put it back if
+  // the save changed it.
+  const file = DriveApp.getFileById(doc.getId());
+  const nameBefore = file.getName();
   const body = doc.getBody();
   body.clear();
   blocks.forEach(block => {
@@ -545,6 +553,9 @@ export function generateListArticleDraft() {
     }
   });
   doc.saveAndClose();
+  if (file.getName() !== nameBefore) {
+    file.setName(nameBefore);
+  }
   Logger.log(`Updated list article draft: ${doc.getUrl()}`);
   return doc.getUrl();
 }
