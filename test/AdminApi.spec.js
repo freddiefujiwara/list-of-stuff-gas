@@ -19,35 +19,57 @@ const SHARE_HEADER = [
   "last_accessed_at",
 ];
 
-const makeSheet = (rows) => {
-  const state = { rows: rows.map((r) => [...r]) };
+const makeSheet = (rows, formulas) => {
+  const state = {
+    rows: rows.map((r) => [...r]),
+    formulas: (formulas || rows.map((r) => r.map(() => ""))).map((r) => [...r]),
+  };
+  const writeCell = (r, c, v) => {
+    if (typeof v === "string" && v.startsWith("=")) {
+      state.formulas[r][c] = v;
+      state.rows[r][c] = "";
+    } else {
+      state.rows[r][c] = v;
+      state.formulas[r][c] = "";
+    }
+  };
   return {
     state,
     getRange: vi.fn((r, c, nr = 1, nc = 1) => ({
-      setValue: vi.fn((v) => {
-        state.rows[r - 1][c - 1] = v;
-      }),
+      setValue: vi.fn((v) => writeCell(r - 1, c - 1, v)),
       setValues: vi.fn((vv) => {
         vv.forEach((rowVals, i) =>
           rowVals.forEach((v, j) => {
-            state.rows[r - 1 + i][c - 1 + j] = v;
+            if (!state.rows[r - 1 + i]) state.rows[r - 1 + i] = [];
+            if (!state.formulas[r - 1 + i]) state.formulas[r - 1 + i] = [];
+            writeCell(r - 1 + i, c - 1 + j, v);
           })
         );
       }),
       getValues: vi.fn(() =>
         state.rows.slice(r - 1, r - 1 + nr).map((row) => row.slice(c - 1, c - 1 + nc))
       ),
+      getFormulas: vi.fn(() =>
+        state.formulas.slice(r - 1, r - 1 + nr).map((row) => row.slice(c - 1, c - 1 + nc))
+      ),
       clearContent: vi.fn(),
     })),
     getDataRange: vi.fn(() => ({
       getValues: () => state.rows.map((r) => [...r]),
+      getFormulas: () => state.formulas.map((r) => [...r]),
     })),
     getLastRow: vi.fn(() => state.rows.length),
     appendRow: vi.fn((row) => {
       state.rows.push([...row]);
+      state.formulas.push(row.map(() => ""));
     }),
     deleteRow: vi.fn((n) => {
       state.rows.splice(n - 1, 1);
+      state.formulas.splice(n - 1, 1);
+    }),
+    insertRowsBefore: vi.fn((n) => {
+      state.rows.splice(n - 1, 0, []);
+      state.formulas.splice(n - 1, 0, []);
     }),
   };
 };
@@ -220,9 +242,9 @@ describe("item CRUD", () => {
     expect(lastJson()).toEqual({ ok: false, error: "sheet is not editable: room" });
   });
 
-  it("refuses the subscriptions sheet", () => {
-    post({ action: "create_item", sheet: "subscriptions", item: { title: "x" }, idToken: "x" });
-    expect(lastJson()).toEqual({ ok: false, error: "sheet is not editable: subscriptions" });
+  it("refuses a sheet that is neither an item sheet nor subscriptions", () => {
+    post({ action: "create_item", sheet: "summary", item: { title: "x" }, idToken: "x" });
+    expect(lastJson()).toEqual({ ok: false, error: "sheet is not editable: summary" });
   });
 
   it("creates an item, normalizing numbers, and clears the items cache", () => {
@@ -317,5 +339,82 @@ describe("share sessions", () => {
     expect(validateShareToken_(second.share_token)).not.toBeNull();
     revokeShareSession_();
     expect(validateShareToken_(second.share_token)).toBeNull();
+  });
+});
+
+
+describe("list_genres", () => {
+  it("collects distinct genres across the item sheets in first-appearance order", () => {
+    post({ action: "list_genres", idToken: "x" });
+    const res = lastJson();
+    expect(res.ok).toBe(true);
+    expect(res.genres).toEqual(["GenreR", "GenreA", "GenreC"]);
+  });
+});
+
+describe("subscriptions admin", () => {
+  const SUB_HEADER = ["Service", "Purpose", "Yearly Cost", "Monthly Cost", "Ratio", "URL"];
+  beforeEach(() => {
+    sheets.subscriptions = makeSheet(
+      [
+        SUB_HEADER,
+        ["NHK", "tv", 21765, 1813.75, 0.015, "https://www.nhk.or.jp/"],
+        ["DAZN", "baseball", 27600, 2300, 0.019, "https://www.dazn.com/"],
+        ["", "", 49365, 4113.75, "", ""],
+      ],
+      [
+        SUB_HEADER.map(() => ""),
+        ["", "", "", "=C2/12", "=D2/$D$4", ""],
+        ["", "", "=D3*12", "", "=D3/$D$4", ""],
+        ["", "", "=SUM(C2:C3)", "=SUM(D2:D3)", "", ""],
+      ]
+    );
+  });
+
+  it("lists subscriptions without the totals row, with the basis detected", () => {
+    post({ action: "list_items", sheet: "subscriptions", idToken: "x" });
+    const res = lastJson();
+    expect(res.ok).toBe(true);
+    expect(res.subscriptions).toHaveLength(2);
+    expect(res.subscriptions[0]).toMatchObject({ row: 2, service: "NHK", yearly: 21765, basis: "yearly" });
+    expect(res.subscriptions[1]).toMatchObject({ row: 3, service: "DAZN", monthly: 2300, basis: "monthly" });
+  });
+
+  it("creates a yearly-based row above the totals row with deriving formulas", () => {
+    post({ action: "create_item", sheet: "subscriptions", item: { service: "New", purpose: "p", basis: "yearly", amount: 12000, url: "https://x.example" }, idToken: "x" });
+    expect(lastJson()).toMatchObject({ ok: true, row: 4 });
+    expect(sheets.subscriptions.insertRowsBefore).toHaveBeenCalledWith(4);
+    expect(sheets.subscriptions.state.rows[3].slice(0, 3)).toEqual(["New", "p", 12000]);
+    expect(sheets.subscriptions.state.formulas[3][3]).toBe("=C4/12");
+    expect(sheets.subscriptions.state.formulas[3][4]).toBe("=D4/$D$5");
+  });
+
+  it("creates a monthly-based row with the yearly side derived", () => {
+    post({ action: "create_item", sheet: "subscriptions", item: { service: "M", purpose: "", basis: "monthly", amount: 500, url: "" }, idToken: "x" });
+    expect(lastJson()).toMatchObject({ ok: true, row: 4 });
+    expect(sheets.subscriptions.state.rows[3][3]).toBe(500);
+    expect(sheets.subscriptions.state.formulas[3][2]).toBe("=D4*12");
+  });
+
+  it("updates amounts and the URL while leaving the ratio formula untouched", () => {
+    post({ action: "update_item", sheet: "subscriptions", row: 3, item: { service: "DAZN", purpose: "baseball", basis: "monthly", amount: 2600, url: "https://www.dazn.com/" }, idToken: "x" });
+    expect(lastJson()).toEqual({ ok: true, row: 3 });
+    expect(sheets.subscriptions.state.rows[2][3]).toBe(2600);
+    expect(sheets.subscriptions.state.formulas[2][2]).toBe("=D3*12");
+    expect(sheets.subscriptions.state.formulas[2][4]).toBe("=D3/$D$4");
+  });
+
+  it("refuses to update or delete the totals row", () => {
+    post({ action: "update_item", sheet: "subscriptions", row: 4, item: { service: "x" }, idToken: "x" });
+    expect(lastJson().error).toContain("totals");
+    post({ action: "delete_item", sheet: "subscriptions", row: 4, idToken: "x" });
+    expect(lastJson().error).toContain("totals");
+    expect(sheets.subscriptions.state.rows).toHaveLength(4);
+  });
+
+  it("deletes a data row", () => {
+    post({ action: "delete_item", sheet: "subscriptions", row: 2, idToken: "x" });
+    expect(lastJson()).toEqual({ ok: true, row: 2 });
+    expect(sheets.subscriptions.state.rows.map((r) => r[0])).toEqual(["Service", "DAZN", ""]);
   });
 });
