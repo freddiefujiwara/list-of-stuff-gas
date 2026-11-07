@@ -599,10 +599,16 @@ const allowedEmails_ = () =>
 const verifyIdToken_ = idToken => {
   if (!idToken) throw new Error('missing id token');
   const clientId = scriptProperty_('GOOGLE_OAUTH_CLIENT_ID');
-  const res = UrlFetchApp.fetch(
-    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`,
-    { muteHttpExceptions: true }
-  );
+  const tokenInfoUrl = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`;
+  let res;
+  try {
+    res = UrlFetchApp.fetch(tokenInfoUrl, { muteHttpExceptions: true });
+  } catch (err) {
+    // A transport-level failure (DNS, connection) is transient;
+    // retry once before giving up. HTTP-level failures arrive as a
+    // response (muteHttpExceptions) and are not retried.
+    res = UrlFetchApp.fetch(tokenInfoUrl, { muteHttpExceptions: true });
+  }
   if (res.getResponseCode() !== 200) throw new Error('token verification failed');
   const payload = JSON.parse(res.getContentText());
   if (payload.iss !== 'accounts.google.com' && payload.iss !== 'https://accounts.google.com') {
@@ -971,15 +977,23 @@ export function doPost(e) {
     } catch (err) {
       return authError_(err);
     }
-    const result = body.action === 'issue_share' ? issueShareSession_() : revokeShareSession_();
-    return jsonOut_({ ok: true, ...result });
+    try {
+      const result = body.action === 'issue_share' ? issueShareSession_() : revokeShareSession_();
+      return jsonOut_({ ok: true, ...result });
+    } catch (err) {
+      return jsonOut_({ ok: false, error: err.message });
+    }
   }
 
   // The remaining actions accept the owner's ID token or a share token
   // from an issued access link (owner-equivalent).
   let shareSession = null;
   if (body.share_token) {
-    shareSession = validateShareToken_(body.share_token);
+    try {
+      shareSession = validateShareToken_(body.share_token);
+    } catch (err) {
+      return jsonOut_({ ok: false, error: err.message });
+    }
     if (!shareSession) {
       return jsonOut_({ ok: false, status: 401, error: 'share session expired or invalid' });
     }
