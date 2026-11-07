@@ -568,8 +568,8 @@ export function setupListArticleTrigger() {
 // Admin API (doPost) for the list-of-stuff-admin site.
 //
 // The room sheet is rewritten by crawlRoom() from Rakuten ROOM, so the
-// admin API manages only the hand-edited item sheets: workman, variety
-// and others. Authentication mirrors the other private sites (alarm,
+// admin API manages the hand-edited sheets: the item sheets (workman,
+// variety, others) and the subscriptions sheet. Authentication mirrors the other private sites (alarm,
 // health, tweet): the owner's Google ID token, verified against the
 // AVAILABLE_GMAILS allowlist, or a temporary share token issued by the
 // owner (owner-equivalent; sessions are stored hashed in a
@@ -727,8 +727,9 @@ const validateShareToken_ = token => {
 
 // --- Item CRUD on the hand-edited sheets ---
 
-// Only the hand-edited sheets may be touched; the room sheet is owned
-// by crawlRoom() and the subscriptions sheet stays sheet-edited.
+// Only the hand-edited item sheets may be touched through the item
+// actions; the room sheet is owned by crawlRoom(). The subscriptions
+// sheet has its own shape and its own functions below.
 const adminSheet_ = name => {
   if (!ADMIN_SHEETS.includes(name)) {
     throw new Error(`sheet is not editable: ${name}`);
@@ -804,6 +805,144 @@ const deleteItem_ = (name, row) => {
   return { row: n };
 };
 
+// The distinct genre values across all item sheets (room included:
+// the genres are shared by every item), in first-appearance order.
+// The admin form offers them as a dropdown.
+const listGenres_ = () => {
+  const seen = [];
+  ['room', 'workman', 'variety', 'others'].forEach(name => {
+    const values = getSheet(name).getDataRange().getValues();
+    values.slice(1).forEach(row => {
+      const genre = row[5];
+      if (genre && !seen.includes(genre)) {
+        seen.push(genre);
+      }
+    });
+  });
+  return seen;
+};
+
+// --- Subscriptions ---
+// Columns: Service, Purpose, Yearly Cost, Monthly Cost, Ratio, URL.
+// The sheet's own convention is kept: exactly one of the cost cells
+// holds the entered amount and the other derives it by formula
+// (monthly = yearly / 12, or yearly = monthly * 12). The row's basis
+// says which side is entered. The Ratio cell is a formula against the
+// totals row's monthly sum; structural inserts/deletes shift it like
+// the sheet does, so the admin only writes it for new rows. The totals
+// row (the one with =SUM(...) in a cost column) is never editable,
+// and new rows are inserted just above it so the SUM ranges and the
+// ratio references keep covering every subscription.
+const SUBSCRIPTION_SHEET = 'subscriptions';
+
+const findTotalsRow_ = sheet => {
+  const formulas = sheet.getDataRange().getFormulas();
+  for (let i = 1; i < formulas.length; i++) {
+    if (/^=SUM\(/i.test(formulas[i][2] || '') || /^=SUM\(/i.test(formulas[i][3] || '')) {
+      return i + 1;
+    }
+  }
+  return 0;
+};
+
+const subscriptionBasis_ = (cFormula, dFormula) => {
+  if (/^=C\d+\/12/.test(dFormula || '')) return 'yearly';
+  if (/^=D\d+\*12/.test(cFormula || '')) return 'monthly';
+  return 'yearly';
+};
+
+const readSubscriptions_ = () => {
+  const sheet = getSheet(SUBSCRIPTION_SHEET);
+  const values = sheet.getDataRange().getValues();
+  const formulas = sheet.getDataRange().getFormulas();
+  const totalsRow = findTotalsRow_(sheet);
+  return values
+    .slice(1)
+    .map((row, index) => ({
+      row: index + 2,
+      service: row[0] ?? '',
+      purpose: row[1] ?? '',
+      yearly: row[2] ?? '',
+      monthly: row[3] ?? '',
+      ratio: row[4] ?? '',
+      url: row[5] ?? '',
+      basis: subscriptionBasis_(formulas[index + 1][2], formulas[index + 1][3]),
+    }))
+    .filter(sub => sub.row !== totalsRow);
+};
+
+// Build the A:F cells for one subscription at a given row. amounts:
+// sub.amount is the entered cost on the sub.basis side; the other
+// side becomes the deriving formula, like the sheet's own rows.
+const subscriptionCells_ = (sub, row, ratioFormula) => {
+  const src = sub || {};
+  const text = v => (v === null || v === undefined ? '' : String(v));
+  const amount =
+    src.amount === null || src.amount === undefined || String(src.amount).trim() === ''
+      ? ''
+      : isFinite(Number(src.amount))
+        ? Number(src.amount)
+        : '';
+  let yearly = '';
+  let monthly = '';
+  if (amount !== '') {
+    if (src.basis === 'monthly') {
+      monthly = amount;
+      yearly = `=D${row}*12`;
+    } else {
+      yearly = amount;
+      monthly = `=C${row}/12`;
+    }
+  }
+  return [text(src.service), text(src.purpose), yearly, monthly, ratioFormula, text(src.url)];
+};
+
+const createSubscription_ = sub => {
+  const sheet = getSheet(SUBSCRIPTION_SHEET);
+  const totalsRow = findTotalsRow_(sheet);
+  let row;
+  let newTotalsRow = totalsRow;
+  if (totalsRow > 0) {
+    sheet.insertRowsBefore(totalsRow);
+    row = totalsRow;
+    newTotalsRow = totalsRow + 1;
+  } else {
+    row = sheet.getLastRow() + 1;
+  }
+  const cells = subscriptionCells_(sub, row, '');
+  if ((cells[2] !== '' || cells[3] !== '') && newTotalsRow > 0) {
+    cells[4] = `=D${row}/$D$${newTotalsRow}`;
+  }
+  sheet.getRange(row, 1, 1, 6).setValues([cells]);
+  return { row };
+};
+
+const checkedSubscriptionRow_ = (sheet, row) => {
+  const n = checkedRow_(sheet, row);
+  if (n === findTotalsRow_(sheet)) {
+    throw new Error('the totals row is not editable');
+  }
+  return n;
+};
+
+const updateSubscription_ = (row, sub) => {
+  const sheet = getSheet(SUBSCRIPTION_SHEET);
+  const n = checkedSubscriptionRow_(sheet, row);
+  const cells = subscriptionCells_(sub, n, '');
+  // The Ratio cell (E) is left untouched: its formula keeps pointing
+  // at the totals row, exactly as the sheet maintains it.
+  sheet.getRange(n, 1, 1, 4).setValues([cells.slice(0, 4)]);
+  sheet.getRange(n, 6).setValue(cells[5]);
+  return { row: n };
+};
+
+const deleteSubscription_ = row => {
+  const sheet = getSheet(SUBSCRIPTION_SHEET);
+  const n = checkedSubscriptionRow_(sheet, row);
+  sheet.deleteRow(n);
+  return { row: n };
+};
+
 const jsonOut_ = payload => {
   const output = ContentService.createTextOutput();
   output.setMimeType(ContentService.MimeType.JSON);
@@ -855,6 +994,24 @@ export function doPost(e) {
     shareSession ? { ...payload, _share: { expires_at: shareSession.expires_at } } : payload;
 
   try {
+    if (body.action === 'list_genres') {
+      return jsonOut_(out({ ok: true, genres: listGenres_() }));
+    }
+    if (body.sheet === SUBSCRIPTION_SHEET) {
+      if (body.action === 'list_items') {
+        return jsonOut_(out({ ok: true, sheet: body.sheet, subscriptions: readSubscriptions_() }));
+      }
+      if (body.action === 'create_item') {
+        return jsonOut_(out({ ok: true, ...createSubscription_(body.item) }));
+      }
+      if (body.action === 'update_item') {
+        return jsonOut_(out({ ok: true, ...updateSubscription_(body.row, body.item) }));
+      }
+      if (body.action === 'delete_item') {
+        return jsonOut_(out({ ok: true, ...deleteSubscription_(body.row) }));
+      }
+      return jsonOut_({ ok: false, error: 'unknown action' });
+    }
     if (body.action === 'list_items') {
       return jsonOut_(out({ ok: true, sheet: body.sheet, items: readAdminItems_(body.sheet) }));
     }
@@ -873,4 +1030,4 @@ export function doPost(e) {
   return jsonOut_({ ok: false, error: 'unknown action' });
 }
 
-export { buildItemLine, buildListArticleBlocks, doPost, extractSubscriptions, issueShareSession_, normalizeArticleUrl, normalizeItemRow_, readAdminItems_, revokeShareSession_, splitTitle, validateShareToken_, verifyIdToken_ };
+export { buildItemLine, buildListArticleBlocks, createSubscription_, deleteSubscription_, doPost, extractSubscriptions, issueShareSession_, listGenres_, normalizeArticleUrl, normalizeItemRow_, readAdminItems_, readSubscriptions_, revokeShareSession_, splitTitle, subscriptionCells_, updateSubscription_, validateShareToken_, verifyIdToken_ };
