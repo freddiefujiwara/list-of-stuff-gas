@@ -418,3 +418,48 @@ describe("subscriptions admin", () => {
     expect(sheets.subscriptions.state.rows.map((r) => r[0])).toEqual(["Service", "DAZN", ""]);
   });
 });
+
+describe("resilience of the auth and share plumbing", () => {
+  it("retries the tokeninfo fetch once after a transport failure", () => {
+    const okResponse = {
+      getResponseCode: () => 200,
+      getContentText: () => JSON.stringify(validPayload()),
+    };
+    global.UrlFetchApp.fetch = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error("DNS error");
+      })
+      .mockImplementation(() => okResponse);
+    expect(verifyIdToken_("token")).toBe("owner@example.com");
+    expect(global.UrlFetchApp.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up when the tokeninfo fetch keeps failing", () => {
+    global.UrlFetchApp.fetch = vi.fn(() => {
+      throw new Error("DNS error");
+    });
+    expect(() => verifyIdToken_("token")).toThrow("DNS error");
+    expect(global.UrlFetchApp.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("answers JSON when share validation hits a backend error", () => {
+    global.SpreadsheetApp = {
+      openById: vi.fn(() => {
+        throw new Error("backend error");
+      }),
+    };
+    post({ action: "list_items", sheet: "workman", share_token: "sometoken" });
+    expect(lastJson()).toEqual({ ok: false, error: "backend error" });
+  });
+
+  it("answers JSON when issuing a share link hits a backend error", () => {
+    global.SpreadsheetApp = {
+      openById: vi.fn(() => {
+        throw new Error("backend error");
+      }),
+    };
+    post({ action: "issue_share", idToken: "x" });
+    expect(lastJson()).toEqual({ ok: false, error: "backend error" });
+  });
+});
