@@ -194,16 +194,17 @@ expect(allText).not.toContain("4,109");
 expect(allText).not.toContain("4109");
 });
 
-it("ends with a subscriptions section: name, then its URL when present", () => {
+it("ends with a subscriptions section: name, its purpose when present, then its URL when present", () => {
 const blocks = buildListArticleBlocks(itemsByTab, [
-{ name: "NHK", url: "https://www.nhk.or.jp/" },
-{ name: "DAZN", url: "" },
+{ name: "NHK", purpose: "テレビ設置の義務", url: "https://www.nhk.or.jp/" },
+{ name: "DAZN", purpose: "", url: "" },
 ]);
-const tail = blocks.slice(-5);
+const tail = blocks.slice(-6);
 expect(tail).toEqual([
 { type: "heading2", text: "サブスクリプション"},
 { type: "toc" },
 { type: "text", text: "NHK"},
+{ type: "text", text: "テレビ設置の義務"},
 { type: "link", text: "https://www.nhk.or.jp/"},
 { type: "text", text: "DAZN"},
 ]);
@@ -211,7 +212,7 @@ expect(tail).toEqual([
 });
 
 describe("extractSubscriptions", () => {
-it("returns name/URL pairs, skipping the header, blanks, the total row and school rows", () => {
+it("returns name/purpose/URL entries, skipping the header, blanks, the total row and school rows", () => {
 const values = [
 ["Service", "Purpose", "Yearly Cost", "Monthly Cost", "Ratio", "URL"],
 ["NHK", "テレビ", "¥21,765", "¥1,814", "1.55%", "https://www.nhk.or.jp/"],
@@ -221,8 +222,8 @@ const values = [
 ["DAZN", "野球", "¥27,600", "¥2,300", "1.97%", ""],
 ];
 expect(extractSubscriptions(values)).toEqual([
-{ name: "NHK", url: "https://www.nhk.or.jp/" },
-{ name: "DAZN", url: "" },
+{ name: "NHK", purpose: "テレビ", url: "https://www.nhk.or.jp/" },
+{ name: "DAZN", purpose: "野球", url: "" },
 ]);
 });
 
