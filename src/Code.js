@@ -469,6 +469,12 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
     }
     const clean = String(url ?? '').trim();
     if (clean) {
+      // A subscription whose purpose says it was cancelled gets the
+      // blog-wide [[画像グレーアウト]] marker right before its link,
+      // so blog-gas flags the card and the front-ends gray it out.
+      if (note.includes('解約')) {
+        push('text', '[[画像グレーアウト]]');
+      }
       push('link', normalizeArticleUrl(clean));
     }
   });

@@ -209,6 +209,30 @@ expect(tail).toEqual([
 { type: "text", text: "DAZN"},
 ]);
 });
+
+it("emits a [[画像グレーアウト]] marker before the link of a cancelled subscription only", () => {
+const blocks = buildListArticleBlocks(itemsByTab, [
+{ name: "Peak Chinese", purpose: "中国語学習用（解約手続き済みで、2027年9月26日まで利用できます）", url: "https://apps.apple.com/jp/app/id1462500984" },
+{ name: "Suno", purpose: "音楽生成AI", url: "https://suno.com/" },
+{ name: "NoLink", purpose: "解約済み", url: "" },
+]);
+const start = blocks.findIndex(
+(b) => b.type === "heading2" && b.text === "サブスクリプション"
+);
+expect(blocks.slice(start)).toEqual([
+{ type: "heading2", text: "サブスクリプション" },
+{ type: "toc" },
+{ type: "text", text: "Peak Chinese" },
+{ type: "text", text: "中国語学習用（解約手続き済みで、2027年9月26日まで利用できます）" },
+{ type: "text", text: "[[画像グレーアウト]]" },
+{ type: "link", text: "https://apps.apple.com/jp/app/id1462500984" },
+{ type: "text", text: "Suno" },
+{ type: "text", text: "音楽生成AI" },
+{ type: "link", text: "https://suno.com/" },
+{ type: "text", text: "NoLink" },
+{ type: "text", text: "解約済み" },
+]);
+});
 });
 
 describe("extractSubscriptions", () => {
