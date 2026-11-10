@@ -413,8 +413,9 @@ const splitTitle = rawTitle => {
 // first-seen order and items keep sheet order within each genre. An
 // item with a URL renders as a link card, so only its comment follows
 // as text; an item without a URL falls back to the full text line.
-// The subscriptions section comes last: names, plus a link card for
-// services whose sheet row carries a URL. Amounts never appear.
+// The subscriptions section comes last: names and their purpose
+// notes, plus a link card for services whose sheet row carries a
+// URL. Amounts never appear.
 const buildListArticleBlocks = (itemsByTab, subscriptions) => {
   const blocks = [];
   const push = (type, text) => blocks.push({ type, text });
@@ -460,8 +461,12 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
 
   push('heading2', 'サブスクリプション');
   push('toc');
-  (subscriptions || []).forEach(({ name, url }) => {
+  (subscriptions || []).forEach(({ name, purpose, url }) => {
     push('text', name);
+    const note = String(purpose ?? '').trim();
+    if (note) {
+      push('text', note);
+    }
     const clean = String(url ?? '').trim();
     if (clean) {
       push('link', normalizeArticleUrl(clean));
@@ -471,14 +476,15 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
 };
 
 // Services from the subscriptions sheet's raw values (header row
-// included), as { name, url } pairs. Amounts are never read into the
-// output. Header, blank, total and school rows are skipped: the draft
-// is public-facing.
+// included), as { name, purpose, url } entries. Amounts are never
+// read into the output. Header, blank, total and school rows are
+// skipped: the draft is public-facing.
 const extractSubscriptions = values => {
   const objects = sheetValuesToObjects(values.slice());
   return objects
     .map(obj => ({
       name: String(obj.Service ?? '').trim(),
+      purpose: String(obj.Purpose ?? '').trim(),
       url: String(obj.URL ?? '').trim(),
     }))
     .filter(
