@@ -233,21 +233,78 @@ expect(blocks.slice(start)).toEqual([
 { type: "text", text: "解約済み" },
 ]);
 });
+
+it("emits a [[画像グレーアウト]] marker before the link of a flagged item or subscription", () => {
+const blocks = buildListArticleBlocks(
+{
+room: [
+{
+title: "クリップライト",
+price: 2029,
+unit: 1,
+genre: "暮らしにまつわる物",
+url: "https://item.rakuten.co.jp/example/1/",
+comment: "机用",
+flag: "整理対象",
+},
+],
+workman: [],
+variety: [],
+others: [
+{
+title: "メモ帳",
+price: 100,
+unit: 1,
+genre: "暮らしにまつわる物",
+url: "https://example.com/memo",
+comment: "",
+flag: "",
+},
+],
+},
+[
+{ name: "Chat GPT Plus", purpose: "AIチャット", url: "https://chatgpt.com/", flag: "整理対象" },
+{ name: "Peak Chinese", purpose: "解約手続き済み", url: "https://apps.apple.com/jp/app/x", flag: "整理対象" },
+]
+);
+expect(blocks).toEqual([
+{ type: "heading2", text: "暮らしにまつわる物" },
+{ type: "toc" },
+{ type: "text", text: "1. クリップライト" },
+{ type: "text", text: "[[画像グレーアウト]]" },
+{ type: "link", text: "https://item.rakuten.co.jp/example/1/" },
+{ type: "text", text: "机用" },
+{ type: "text", text: "2. メモ帳" },
+{ type: "link", text: "https://example.com/memo" },
+{ type: "heading2", text: "サブスクリプション" },
+{ type: "toc" },
+{ type: "text", text: "Chat GPT Plus" },
+{ type: "text", text: "AIチャット" },
+{ type: "text", text: "[[画像グレーアウト]]" },
+{ type: "link", text: "https://chatgpt.com/" },
+{ type: "text", text: "Peak Chinese" },
+{ type: "text", text: "解約手続き済み" },
+{ type: "text", text: "[[画像グレーアウト]]" },
+{ type: "link", text: "https://apps.apple.com/jp/app/x" },
+]);
+});
 });
 
 describe("extractSubscriptions", () => {
 it("returns name/purpose/URL entries, skipping the header, blanks, the total row and school rows", () => {
 const values = [
-["Service", "Purpose", "Yearly Cost", "Monthly Cost", "Ratio", "URL"],
-["NHK", "テレビ", "¥21,765", "¥1,814", "1.55%", "https://www.nhk.or.jp/"],
-["", "", "", "", "", ""],
-["武南中学校", "学費", "¥931,986", "¥77,665", "66.4%", ""],
-["合計", "", "¥1,403,230", "¥116,936", "100%", ""],
-["DAZN", "野球", "¥27,600", "¥2,300", "1.97%", ""],
+["Service", "Purpose", "Yearly Cost", "Monthly Cost", "Ratio", "URL", "flag"],
+["NHK", "テレビ", "¥21,765", "¥1,814", "1.55%", "https://www.nhk.or.jp/", ""],
+["", "", "", "", "", "", ""],
+["武南中学校", "学費", "¥931,986", "¥77,665", "66.4%", "", ""],
+["合計", "", "¥1,403,230", "¥116,936", "100%", "", ""],
+["DAZN", "野球", "¥27,600", "¥2,300", "1.97%", "", ""],
+["Chat GPT Plus", "AIチャット", "¥103,232", "¥8,603", "7.35%", "https://chatgpt.com/", "整理対象"],
 ];
 expect(extractSubscriptions(values)).toEqual([
-{ name: "NHK", purpose: "テレビ", url: "https://www.nhk.or.jp/" },
-{ name: "DAZN", purpose: "野球", url: "" },
+{ name: "NHK", purpose: "テレビ", url: "https://www.nhk.or.jp/", flag: "" },
+{ name: "DAZN", purpose: "野球", url: "", flag: "" },
+{ name: "Chat GPT Plus", purpose: "AIチャット", url: "https://chatgpt.com/", flag: "整理対象" },
 ]);
 });
 
@@ -274,6 +331,7 @@ describe("generateListArticleDraft", () => {
       ["Service", "Purpose", "Yearly Cost", "Monthly Cost", "Ratio", "URL"],
       ["NHK", "テレビ", "¥21,765", "¥1,814", "1.55%", "https://www.nhk.or.jp/"],
     ],
+    flags: [["url"]],
   };
 
   let mockBody;
@@ -344,6 +402,17 @@ describe("generateListArticleDraft", () => {
     expect(written).toContain("NHK");
     expect(written).toContain("https://www.nhk.or.jp/");
     expect(written.join("\n")).not.toContain("21,765");
+  });
+
+  it("grays out a room item whose URL is in the flags sheet", () => {
+    sheetValues.flags = [["url"], ["https://example.com/1"]];
+    generateListArticleDraft();
+    const written = mockBody.appendParagraph.mock.calls.map((c) => c[0]);
+    const titleIndex = written.indexOf("1. クリップライト");
+    expect(titleIndex).toBeGreaterThanOrEqual(0);
+    expect(written[titleIndex + 1]).toBe("[[画像グレーアウト]]");
+    expect(written[titleIndex + 2]).toBe("https://example.com/1");
+    sheetValues.flags = [["url"]];
   });
 
   it("reuses the stored dummy doc on later runs", () => {
