@@ -451,6 +451,13 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
         return;
       }
       push('text', `${idx + 1}. ${title}`);
+      // A flagged （整理対象） item gets the blog-wide
+      // [[画像グレーアウト]] marker right before its link, so its
+      // card grays out on the front-ends, like a cancelled
+      // subscription's does.
+      if (String(item.flag ?? '').trim() === FLAG_VALUE) {
+        push('text', '[[画像グレーアウト]]');
+      }
       push('link', normalizeArticleUrl(url));
       const comment = String(item.comment ?? '').trim();
       if (comment) {
@@ -461,7 +468,7 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
 
   push('heading2', 'サブスクリプション');
   push('toc');
-  (subscriptions || []).forEach(({ name, purpose, url }) => {
+  (subscriptions || []).forEach(({ name, purpose, url, flag }) => {
     push('text', name);
     const note = String(purpose ?? '').trim();
     if (note) {
@@ -469,10 +476,11 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
     }
     const clean = String(url ?? '').trim();
     if (clean) {
-      // A subscription whose purpose says it was cancelled gets the
-      // blog-wide [[画像グレーアウト]] marker right before its link,
-      // so blog-gas flags the card and the front-ends gray it out.
-      if (note.includes('解約')) {
+      // A subscription whose purpose says it was cancelled, or that
+      // carries the tidy-up flag, gets the blog-wide
+      // [[画像グレーアウト]] marker right before its link, so
+      // blog-gas flags the card and the front-ends gray it out.
+      if (note.includes('解約') || String(flag ?? '').trim() === FLAG_VALUE) {
         push('text', '[[画像グレーアウト]]');
       }
       push('link', normalizeArticleUrl(clean));
@@ -482,9 +490,9 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
 };
 
 // Services from the subscriptions sheet's raw values (header row
-// included), as { name, purpose, url } entries. Amounts are never
-// read into the output. Header, blank, total and school rows are
-// skipped: the draft is public-facing.
+// included), as { name, purpose, url, flag } entries. Amounts are
+// never read into the output. Header, blank, total and school rows
+// are skipped: the draft is public-facing.
 const extractSubscriptions = values => {
   const objects = sheetValuesToObjects(values.slice());
   return objects
@@ -492,6 +500,7 @@ const extractSubscriptions = values => {
       name: String(obj.Service ?? '').trim(),
       purpose: String(obj.Purpose ?? '').trim(),
       url: String(obj.URL ?? '').trim(),
+      flag: String(obj.flag ?? '').trim(),
     }))
     .filter(
       ({ name }) =>
@@ -510,6 +519,13 @@ const readListArticleSource = () => {
   LIST_ARTICLE_SHEETS.forEach(sheet => {
     const values = ss.getSheetByName(sheet).getDataRange().getValues();
     itemsByTab[sheet] = sheetValuesToObjects(values.slice());
+  });
+  // Room flags live in the flags sheet (the room sheet itself is
+  // rewritten by the ROOM sync); merge them in by URL so a flagged
+  // room item grays out in the article like any other flagged item.
+  const flaggedUrls = flaggedRoomUrls_();
+  (itemsByTab.room || []).forEach(item => {
+    item.flag = flaggedUrls.has(String(item.url ?? '').trim()) ? FLAG_VALUE : '';
   });
   const subscriptionValues = ss
     .getSheetByName('subscriptions')
