@@ -754,6 +754,52 @@ const validateShareToken_ = token => {
   return null;
 };
 
+// --- Tidy-up flags （整理対象） ---
+// Entries the owner plans to sort out: possessions to dispose of,
+// subscriptions to cancel. The item sheets and the subscriptions
+// sheet carry the flag in their own extra last column (H and G).
+// The room sheet is rewritten by the ROOM sync, so room flags live
+// in a small flags sheet keyed by the item's URL and survive it.
+const FLAG_VALUE = '整理対象';
+const FLAG_SHEET_NAME = 'flags';
+const FLAG_HEADERS = ['url'];
+
+const getFlagSheet_ = () => {
+  const ss = SpreadsheetApp.openById(spreadsheetId_());
+  let sheet = ss.getSheetByName(FLAG_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(FLAG_SHEET_NAME);
+    sheet.appendRow(FLAG_HEADERS);
+  }
+  return sheet;
+};
+
+const flaggedRoomUrls_ = () => {
+  const values = getFlagSheet_().getDataRange().getValues();
+  return new Set(
+    values.slice(1).map(row => String(row[0] ?? '').trim()).filter(Boolean)
+  );
+};
+
+const setRoomFlag_ = (url, flagged) => {
+  const key = String(url ?? '').trim();
+  if (!key) {
+    throw new Error('url is required to flag a room item');
+  }
+  const sheet = getFlagSheet_();
+  const values = sheet.getDataRange().getValues();
+  const index = values.findIndex(
+    (row, i) => i > 0 && String(row[0] ?? '').trim() === key
+  );
+  if (flagged && index < 0) {
+    sheet.appendRow([key]);
+  }
+  if (!flagged && index >= 0) {
+    sheet.deleteRow(index + 1);
+  }
+  return { url: key, flag: flagged ? FLAG_VALUE : '' };
+};
+
 // --- Item CRUD on the hand-edited sheets ---
 
 // Only the hand-edited item sheets may be touched through the item
@@ -778,7 +824,36 @@ const readAdminItems_ = name => {
     unit: row[4] ?? '',
     genre: row[5] ?? '',
     comment: row[6] ?? '',
+    flag: row[7] ?? '',
   }));
+};
+
+// Room items are listed read-only: the sheet itself stays owned by
+// crawlRoom(); only the tidy-up flag is writable, and it lives in
+// the flags sheet (see above).
+const readRoomItems_ = () => {
+  const sheet = getSheet('room');
+  const values = sheet.getDataRange().getValues();
+  const flagged = flaggedRoomUrls_();
+  return values.slice(1).map((row, index) => ({
+    row: index + 2,
+    title: row[0] ?? '',
+    image: row[1] ?? '',
+    url: row[2] ?? '',
+    price: row[3] ?? '',
+    unit: row[4] ?? '',
+    genre: row[5] ?? '',
+    comment: row[6] ?? '',
+    flag: flagged.has(String(row[2] ?? '').trim()) ? FLAG_VALUE : '',
+  }));
+};
+
+const setItemFlag_ = (name, row, flagged) => {
+  const sheet = adminSheet_(name);
+  const n = checkedRow_(sheet, row);
+  const flag = flagged ? FLAG_VALUE : '';
+  sheet.getRange(n, 8).setValue(flag);
+  return { row: n, flag };
 };
 
 // Coerce one item payload into a sheet row in the fixed column order
@@ -800,6 +875,7 @@ const normalizeItemRow_ = item => {
     number(src.unit),
     text(src.genre),
     text(src.comment),
+    text(src.flag),
   ];
 };
 
@@ -821,7 +897,13 @@ const createItem_ = (name, item) => {
 const updateItem_ = (name, row, item) => {
   const sheet = adminSheet_(name);
   const n = checkedRow_(sheet, row);
-  sheet.getRange(n, 1, 1, 7).setValues([normalizeItemRow_(item)]);
+  const cells = normalizeItemRow_(item);
+  if (!item || item.flag === undefined) {
+    // The flag is managed through set_flag; a plain edit keeps it.
+    const current = sheet.getRange(n, 8).getValues()[0] || [];
+    cells[7] = current[0] ?? '';
+  }
+  sheet.getRange(n, 1, 1, 8).setValues([cells]);
   clearItemsCache();
   return { row: n };
 };
@@ -895,6 +977,7 @@ const readSubscriptions_ = () => {
       monthly: row[3] ?? '',
       ratio: row[4] ?? '',
       url: row[5] ?? '',
+      flag: row[6] ?? '',
       basis: subscriptionBasis_(formulas[index + 1][2], formulas[index + 1][3]),
     }))
     .filter(sub => sub.row !== totalsRow);
@@ -923,7 +1006,7 @@ const subscriptionCells_ = (sub, row, ratioFormula) => {
       monthly = `=C${row}/12`;
     }
   }
-  return [text(src.service), text(src.purpose), yearly, monthly, ratioFormula, text(src.url)];
+  return [text(src.service), text(src.purpose), yearly, monthly, ratioFormula, text(src.url), text(src.flag)];
 };
 
 const createSubscription_ = sub => {
@@ -942,7 +1025,7 @@ const createSubscription_ = sub => {
   if ((cells[2] !== '' || cells[3] !== '') && newTotalsRow > 0) {
     cells[4] = `=D${row}/$D$${newTotalsRow}`;
   }
-  sheet.getRange(row, 1, 1, 6).setValues([cells]);
+  sheet.getRange(row, 1, 1, 7).setValues([cells]);
   return { row };
 };
 
@@ -962,7 +1045,22 @@ const updateSubscription_ = (row, sub) => {
   // at the totals row, exactly as the sheet maintains it.
   sheet.getRange(n, 1, 1, 4).setValues([cells.slice(0, 4)]);
   sheet.getRange(n, 6).setValue(cells[5]);
+  // The flag (G) follows the same rule as the item sheets: set_flag
+  // owns it, and a plain edit that omits it keeps the stored value.
+  const flag =
+    sub && sub.flag !== undefined
+      ? cells[6]
+      : ((sheet.getRange(n, 7).getValues()[0] || [])[0] ?? '');
+  sheet.getRange(n, 7).setValue(flag);
   return { row: n };
+};
+
+const setSubscriptionFlag_ = (row, flagged) => {
+  const sheet = getSheet(SUBSCRIPTION_SHEET);
+  const n = checkedSubscriptionRow_(sheet, row);
+  const flag = flagged ? FLAG_VALUE : '';
+  sheet.getRange(n, 7).setValue(flag);
+  return { row: n, flag };
 };
 
 const deleteSubscription_ = row => {
@@ -1034,6 +1132,19 @@ export function doPost(e) {
     if (body.action === 'list_genres') {
       return jsonOut_(out({ ok: true, genres: listGenres_() }));
     }
+    if (body.action === 'set_flag') {
+      const flagged = body.flagged === true;
+      if (body.sheet === 'room') {
+        return jsonOut_(out({ ok: true, ...setRoomFlag_(body.url, flagged) }));
+      }
+      if (body.sheet === SUBSCRIPTION_SHEET) {
+        return jsonOut_(out({ ok: true, ...setSubscriptionFlag_(body.row, flagged) }));
+      }
+      return jsonOut_(out({ ok: true, ...setItemFlag_(body.sheet, body.row, flagged) }));
+    }
+    if (body.action === 'list_items' && body.sheet === 'room') {
+      return jsonOut_(out({ ok: true, sheet: 'room', items: readRoomItems_() }));
+    }
     if (body.sheet === SUBSCRIPTION_SHEET) {
       if (body.action === 'list_items') {
         return jsonOut_(out({ ok: true, sheet: body.sheet, subscriptions: readSubscriptions_() }));
@@ -1067,4 +1178,4 @@ export function doPost(e) {
   return jsonOut_({ ok: false, error: 'unknown action' });
 }
 
-export { buildItemLine, buildListArticleBlocks, createSubscription_, deleteSubscription_, doPost, extractSubscriptions, issueShareSession_, listGenres_, normalizeArticleUrl, normalizeItemRow_, readAdminItems_, readSubscriptions_, revokeShareSession_, splitTitle, subscriptionCells_, updateSubscription_, validateShareToken_, verifyIdToken_ };
+export { buildItemLine, buildListArticleBlocks, createSubscription_, deleteSubscription_, doPost, extractSubscriptions, issueShareSession_, listGenres_, normalizeArticleUrl, normalizeItemRow_, readAdminItems_, readRoomItems_, readSubscriptions_, revokeShareSession_, setRoomFlag_, splitTitle, subscriptionCells_, updateSubscription_, validateShareToken_, verifyIdToken_ };
