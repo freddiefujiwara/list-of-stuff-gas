@@ -403,6 +403,61 @@ describe("share sessions", () => {
 });
 
 
+describe("owner sessions", () => {
+  const exchange = () => {
+    post({ action: "exchange_session", idToken: "x" });
+    return lastJson();
+  };
+
+  it("exchanges a Google ID token for a 30-day owner session", () => {
+    const before = Date.now();
+    const issued = exchange();
+    expect(issued.ok).toBe(true);
+    expect(issued.session_token).toHaveLength(64);
+    expect(Date.parse(issued.expires_at) - before).toBeGreaterThan(29 * 24 * 60 * 60 * 1000);
+    expect(sheets.owner_sessions.state.rows[0]).toEqual(SHARE_HEADER);
+    expect(sheets.owner_sessions.state.rows[1][0]).not.toBe(issued.session_token);
+  });
+
+  it("rejects the exchange when the ID token is invalid", () => {
+    tokenHttpCode = 400;
+    post({ action: "exchange_session", idToken: "bad" });
+    expect(lastJson().ok).toBe(false);
+  });
+
+  it("lets the owner session run admin actions", () => {
+    const { session_token } = exchange();
+    post({ action: "list_items", sheet: "others", session_token });
+    const listed = lastJson();
+    expect(listed.ok).toBe(true);
+    expect(listed.items[0]).toMatchObject({ title: "Item C" });
+    expect(sheets.owner_sessions.state.rows[1][4]).toBe(1);
+  });
+
+  it("rejects an unknown session token", () => {
+    post({ action: "list_items", sheet: "others", session_token: "nope" });
+    expect(lastJson()).toEqual({ ok: false, status: 401, error: "session expired or invalid" });
+  });
+
+  it("revokes the session on revoke_session (logout)", () => {
+    const { session_token } = exchange();
+    post({ action: "revoke_session", session_token });
+    expect(lastJson()).toEqual({ ok: true, revoked: true });
+    post({ action: "list_items", sheet: "others", session_token });
+    expect(lastJson().ok).toBe(false);
+  });
+
+  it("lets an owner session issue share links, but never a share token", () => {
+    const { session_token } = exchange();
+    post({ action: "issue_share", session_token });
+    const issued = lastJson();
+    expect(issued.ok).toBe(true);
+    expect(issued.share_token).toHaveLength(64);
+    post({ action: "issue_share", share_token: issued.share_token });
+    expect(lastJson()).toMatchObject({ ok: false, status: 401, error: "missing id token" });
+  });
+});
+
 describe("list_genres", () => {
   it("collects distinct genres across the item sheets in first-appearance order", () => {
     post({ action: "list_genres", idToken: "x" });
