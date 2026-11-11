@@ -232,13 +232,13 @@ describe("item CRUD", () => {
     const res = lastJson();
     expect(res.ok).toBe(true);
     expect(res.items).toEqual([
-      { row: 2, title: "Item A", image: "a.jpg", url: "https://example.com/a", price: 1000, unit: 2, genre: "GenreA", comment: "note A" },
-      { row: 3, title: "Item B", image: "", url: "", price: "", unit: "", genre: "", comment: "" },
+      { row: 2, title: "Item A", image: "a.jpg", url: "https://example.com/a", price: 1000, unit: 2, genre: "GenreA", comment: "note A", flag: "" },
+      { row: 3, title: "Item B", image: "", url: "", price: "", unit: "", genre: "", comment: "", flag: "" },
     ]);
   });
 
-  it("refuses the room sheet (owned by the ROOM sync)", () => {
-    post({ action: "list_items", sheet: "room", idToken: "x" });
+  it("refuses to create on the room sheet (owned by the ROOM sync)", () => {
+    post({ action: "create_item", sheet: "room", item: { title: "x" }, idToken: "x" });
     expect(lastJson()).toEqual({ ok: false, error: "sheet is not editable: room" });
   });
 
@@ -255,7 +255,7 @@ describe("item CRUD", () => {
       idToken: "x",
     });
     expect(lastJson()).toEqual({ ok: true, row: 2 });
-    expect(sheets.variety.state.rows[1]).toEqual(["New", "", "", 2500, 3, "G", ""]);
+    expect(sheets.variety.state.rows[1]).toEqual(["New", "", "", 2500, 3, "G", "", ""]);
     expect(cacheRemoveAll).toHaveBeenCalled();
   });
 
@@ -268,7 +268,7 @@ describe("item CRUD", () => {
       idToken: "x",
     });
     expect(lastJson()).toEqual({ ok: true, row: 3 });
-    expect(sheets.workman.state.rows[2]).toEqual(["Item B2", "", "", 700, 1, "GenreB", "c"]);
+    expect(sheets.workman.state.rows[2]).toEqual(["Item B2", "", "", 700, 1, "GenreB", "c", ""]);
   });
 
   it("rejects updates to the header row and beyond the last row", () => {
@@ -286,10 +286,70 @@ describe("item CRUD", () => {
   });
 
   it("normalizeItemRow_ coerces types and tolerates a missing item", () => {
-    expect(normalizeItemRow_(null)).toEqual(["", "", "", "", "", "", ""]);
+    expect(normalizeItemRow_(null)).toEqual(["", "", "", "", "", "", "", ""]);
     expect(
       normalizeItemRow_({ title: 42, price: "abc", unit: "2", comment: null })
-    ).toEqual(["42", "", "", "", 2, "", ""]);
+    ).toEqual(["42", "", "", "", 2, "", "", ""]);
+  });
+});
+
+describe("tidy-up flags", () => {
+  it("sets and clears an item flag in the H column", () => {
+    post({ action: "set_flag", sheet: "workman", row: 2, flagged: true, idToken: "x" });
+    expect(lastJson()).toEqual({ ok: true, row: 2, flag: "整理対象" });
+    expect(sheets.workman.state.rows[1][7]).toBe("整理対象");
+    post({ action: "list_items", sheet: "workman", idToken: "x" });
+    expect(lastJson().items[0].flag).toBe("整理対象");
+    post({ action: "set_flag", sheet: "workman", row: 2, flagged: false, idToken: "x" });
+    expect(lastJson()).toEqual({ ok: true, row: 2, flag: "" });
+    expect(sheets.workman.state.rows[1][7]).toBe("");
+  });
+
+  it("keeps the flag when an item is edited without one", () => {
+    post({ action: "set_flag", sheet: "workman", row: 2, flagged: true, idToken: "x" });
+    post({
+      action: "update_item",
+      sheet: "workman",
+      row: 2,
+      item: { title: "Item A+", price: 1200, unit: 2, genre: "GenreA", comment: "note A" },
+      idToken: "x",
+    });
+    expect(lastJson()).toEqual({ ok: true, row: 2 });
+    expect(sheets.workman.state.rows[1][7]).toBe("整理対象");
+  });
+
+  it("lists room items read-only and flags them by URL in the flags sheet", () => {
+    sheets.room = makeSheet([
+      HEADER,
+      ["Lamp", "l.jpg", "https://room.rakuten.co.jp/freddiefujiwara/111", 3000, 1, "家電にまつわる物", ""],
+      ["Bag", "", "https://room.rakuten.co.jp/freddiefujiwara/222", 500, 1, "暮らしにまつわる物", ""],
+    ]);
+    post({ action: "list_items", sheet: "room", idToken: "x" });
+    let res = lastJson();
+    expect(res.ok).toBe(true);
+    expect(res.items.map((i) => i.flag)).toEqual(["", ""]);
+
+    post({ action: "set_flag", sheet: "room", url: "https://room.rakuten.co.jp/freddiefujiwara/111", flagged: true, idToken: "x" });
+    expect(lastJson()).toEqual({ ok: true, url: "https://room.rakuten.co.jp/freddiefujiwara/111", flag: "整理対象" });
+    expect(sheets.flags.state.rows).toEqual([["url"], ["https://room.rakuten.co.jp/freddiefujiwara/111"]]);
+
+    // flagging twice does not duplicate the row
+    post({ action: "set_flag", sheet: "room", url: "https://room.rakuten.co.jp/freddiefujiwara/111", flagged: true, idToken: "x" });
+    expect(sheets.flags.state.rows).toHaveLength(2);
+
+    post({ action: "list_items", sheet: "room", idToken: "x" });
+    res = lastJson();
+    expect(res.items.map((i) => i.flag)).toEqual(["整理対象", ""]);
+
+    post({ action: "set_flag", sheet: "room", url: "https://room.rakuten.co.jp/freddiefujiwara/111", flagged: false, idToken: "x" });
+    expect(lastJson().flag).toBe("");
+    expect(sheets.flags.state.rows).toEqual([["url"]]);
+  });
+
+  it("refuses to flag a room item without a URL", () => {
+    post({ action: "set_flag", sheet: "room", url: "", flagged: true, idToken: "x" });
+    expect(lastJson().ok).toBe(false);
+    expect(lastJson().error).toContain("url is required");
   });
 });
 
@@ -416,6 +476,29 @@ describe("subscriptions admin", () => {
     post({ action: "delete_item", sheet: "subscriptions", row: 2, idToken: "x" });
     expect(lastJson()).toEqual({ ok: true, row: 2 });
     expect(sheets.subscriptions.state.rows.map((r) => r[0])).toEqual(["Service", "DAZN", ""]);
+  });
+
+  it("sets and clears a flag in the G column, and lists it", () => {
+    post({ action: "set_flag", sheet: "subscriptions", row: 2, flagged: true, idToken: "x" });
+    expect(lastJson()).toEqual({ ok: true, row: 2, flag: "整理対象" });
+    expect(sheets.subscriptions.state.rows[1][6]).toBe("整理対象");
+    post({ action: "list_items", sheet: "subscriptions", idToken: "x" });
+    expect(lastJson().subscriptions[0].flag).toBe("整理対象");
+    post({ action: "set_flag", sheet: "subscriptions", row: 2, flagged: false, idToken: "x" });
+    expect(sheets.subscriptions.state.rows[1][6]).toBe("");
+  });
+
+  it("keeps the flag when a subscription is edited without one", () => {
+    post({ action: "set_flag", sheet: "subscriptions", row: 3, flagged: true, idToken: "x" });
+    post({ action: "update_item", sheet: "subscriptions", row: 3, item: { service: "DAZN", purpose: "baseball", basis: "monthly", amount: 2600, url: "https://www.dazn.com/" }, idToken: "x" });
+    expect(lastJson()).toEqual({ ok: true, row: 3 });
+    expect(sheets.subscriptions.state.rows[2][6]).toBe("整理対象");
+  });
+
+  it("refuses to flag the totals row", () => {
+    post({ action: "set_flag", sheet: "subscriptions", row: 4, flagged: true, idToken: "x" });
+    expect(lastJson().ok).toBe(false);
+    expect(lastJson().error).toContain("totals");
   });
 });
 
