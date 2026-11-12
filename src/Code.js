@@ -1288,4 +1288,4 @@ export function doPost(e) {
   return jsonOut_({ ok: false, error: 'unknown action' });
 }
 
-export { buildItemLine, buildListArticleBlocks, createSubscription_, deleteSubscription_, doPost, extractSubscriptions, issueOwnerSession_, issueShareSession_, listGenres_, normalizeArticleUrl, normalizeItemRow_, readAdminItems_, readRoomItems_, readSubscriptions_, revokeOwnerSession_, revokeShareSession_, setRoomFlag_, splitTitle, subscriptionCells_, updateSubscription_, validateOwnerToken_, validateShareToken_, verifyIdToken_ };
+export { buildItemLine, buildListArticleBlocks, createSubscription_, deleteSubscription_, extractSubscriptions, issueOwnerSession_, issueShareSession_, listGenres_, normalizeArticleUrl, normalizeItemRow_, readAdminItems_, readRoomItems_, readSubscriptions_, revokeOwnerSession_, revokeShareSession_, setRoomFlag_, splitTitle, subscriptionCells_, updateSubscription_, validateOwnerToken_, validateShareToken_, verifyIdToken_ };
