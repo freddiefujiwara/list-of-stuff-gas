@@ -439,14 +439,16 @@ describe("generateListArticleDraft", () => {
     expect(written.join("\n")).not.toContain("21,765");
   });
 
-  it("writes item and subscription titles bold and closes each entry with an anchor marker", () => {
+  it("bolds only the item and subscription titles, and closes each entry with an anchor marker", () => {
     generateListArticleDraft();
-    const bolded = mockParagraphs
-      .filter((p) => p.textObject.setBold.mock.calls.length > 0)
-      .map((p) => p.text);
-    expect(bolded).toEqual(["1. クリップライト", "NHK"]);
+    // every paragraph gets an explicit bold decision, because an
+    // appended paragraph otherwise inherits the previous one's
+    // character formatting (which would bold the comments and the
+    // [[アンカーリンク]] marker paragraphs themselves)
     mockParagraphs.forEach((p) => {
-      p.textObject.setBold.mock.calls.forEach((c) => expect(c).toEqual([true]));
+      expect(p.textObject.setBold.mock.calls).toEqual([
+        [p.text === "1. クリップライト" || p.text === "NHK"],
+      ]);
     });
     const written = mockBody.appendParagraph.mock.calls.map((c) => c[0]);
     expect(written.filter((t) => t === "[[アンカーリンク]]")).toHaveLength(2);
