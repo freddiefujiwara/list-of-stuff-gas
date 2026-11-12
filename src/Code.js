@@ -514,7 +514,7 @@ const extractSubscriptions = values => {
 // once the full content exists (fetch-before-clear, same pattern as
 // crawlRoom).
 const readListArticleSource = () => {
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const ss = SpreadsheetApp.openById(spreadsheetId_());
   const itemsByTab = {};
   LIST_ARTICLE_SHEETS.forEach(sheet => {
     const values = ss.getSheetByName(sheet).getDataRange().getValues();
