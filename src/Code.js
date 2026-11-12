@@ -408,7 +408,12 @@ const splitTitle = rawTitle => {
 };
 
 // Build the whole article as a flat list of blocks:
-// { type: 'heading1' | 'heading2' | 'text' | 'link' | 'toc', text }.
+// { type: 'heading1' | 'heading2' | 'itemTitle' | 'text' | 'link' |
+// 'toc', text }. An 'itemTitle' is written bold into the Doc, so the
+// converted markdown holds it as a bold-only paragraph — the shape
+// the blog-wide [[アンカーリンク]] marker binds to. Every item and
+// subscription entry ends with that marker, so the front-ends give
+// each entry its own "この項目へのリンク" fragment link.
 // Items from all tabs are merged and grouped by genre; genres appear in
 // first-seen order and items keep sheet order within each genre. An
 // item with a URL renders as a link card, so only its comment follows
@@ -439,18 +444,20 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
     push('heading2', genre);
     push('toc');
     // Each item's name, numbered within the genre, sits directly above
-    // its card as plain text — deliberately NOT a heading, so the
-    // article's [[目次]] TOCs (one per genre, from the 'toc' block
+    // its card as a bold paragraph — deliberately NOT a heading, so
+    // the article's [[目次]] TOCs (one per genre, from the 'toc' block
     // above) list the genres only, not every item. The comment
-    // follows below the card.
+    // follows below the card, and the entry closes with the
+    // [[アンカーリンク]] marker bound to the bold name.
     byGenre.get(genre).forEach((item, idx) => {
       const { name: title } = splitTitle(item.title);
       const url = String(item.url ?? '').trim();
       if (!url) {
-        push('text', `${idx + 1}. ${buildItemLine({ ...item, title })}`);
+        push('itemTitle', `${idx + 1}. ${buildItemLine({ ...item, title })}`);
+        push('text', '[[アンカーリンク]]');
         return;
       }
-      push('text', `${idx + 1}. ${title}`);
+      push('itemTitle', `${idx + 1}. ${title}`);
       // A flagged （整理対象） item gets the blog-wide
       // [[画像グレーアウト]] marker right before its link, so its
       // card grays out on the front-ends, like a cancelled
@@ -463,13 +470,14 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
       if (comment) {
         push('text', comment);
       }
+      push('text', '[[アンカーリンク]]');
     });
   });
 
   push('heading2', 'サブスクリプション');
   push('toc');
   (subscriptions || []).forEach(({ name, purpose, url, flag }) => {
-    push('text', name);
+    push('itemTitle', name);
     const note = String(purpose ?? '').trim();
     if (note) {
       push('text', note);
@@ -485,6 +493,7 @@ const buildListArticleBlocks = (itemsByTab, subscriptions) => {
       }
       push('link', normalizeArticleUrl(clean));
     }
+    push('text', '[[アンカーリンク]]');
   });
   return blocks;
 };
@@ -578,6 +587,11 @@ export function generateListArticleDraft() {
       paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING1);
     } else if (type === 'heading2') {
       paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    } else if (type === 'itemTitle') {
+      // Bold the whole paragraph, so the converted markdown holds a
+      // bold-only paragraph — the title shape the [[アンカーリンク]]
+      // marker binds to on the front-ends.
+      paragraph.editAsText().setBold(true);
     }
   });
   doc.saveAndClose();

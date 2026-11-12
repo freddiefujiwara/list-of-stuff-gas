@@ -144,24 +144,38 @@ const start = blocks.findIndex(
 expect(blocks.slice(start, start + 7)).toEqual([
 { type: "heading2", text: "暮らしにまつわる物" },
 { type: "toc" },
-{ type: "text", text: "1. クリップライト" },
+{ type: "itemTitle", text: "1. クリップライト" },
 { type: "link", text: "https://item.rakuten.co.jp/example/1/" },
 { type: "text", text: "机用" },
-{ type: "text", text: "2. 手袋" },
-{
-type: "link",
-text: "https://www.google.com/search?q=%E3%83%AF%E3%83%BC%E3%82%AF%E3%83%9E%E3%83%B3%20%E6%89%8B%E8%A2%8B",
-},
+{ type: "text", text: "[[アンカーリンク]]" },
+{ type: "itemTitle", text: "2. 手袋" },
 ]);
 // numbering restarts per genre, and URL-less items get a numbered line too
 const clothesStart = blocks.findIndex(
 (b) => b.type === "heading2" && b.text === "服"
 );
 expect(blocks[clothesStart + 2]).toEqual({
-type: "text",
+type: "itemTitle",
 text: "1. スリッポン",
 });
-expect(blocks[clothesStart + 4].text.startsWith("2. メモ帳")).toBe(true);
+expect(blocks[clothesStart + 5]).toEqual({
+type: "itemTitle",
+text: "2. メモ帳（¥100） 予備",
+});
+});
+
+it("closes every item and subscription entry with an [[アンカーリンク]] marker", () => {
+const blocks = buildListArticleBlocks(itemsByTab, [
+{ name: "NHK", purpose: "テレビ設置の義務", url: "https://www.nhk.or.jp/" },
+{ name: "DAZN", purpose: "", url: "" },
+]);
+// 4 items (the blank-title room row is filtered out) + 2 subscriptions
+const titles = blocks.filter((b) => b.type === "itemTitle");
+const markers = blocks.filter(
+(b) => b.type === "text" && b.text === "[[アンカーリンク]]"
+);
+expect(titles).toHaveLength(6);
+expect(markers).toHaveLength(6);
 });
 
 it("puts the comment below the card and encodes search URLs", () => {
@@ -181,8 +195,10 @@ expect(links).toContain(
 
 it("falls back to the full text line for items without a URL", () => {
 const blocks = buildListArticleBlocks(itemsByTab, []);
-const texts = blocks.filter((b) => b.type === "text").map((b) => b.text);
-expect(texts).toContain("2. メモ帳（¥100） 予備");
+expect(blocks).toContainEqual({
+type: "itemTitle",
+text: "2. メモ帳（¥100） 予備",
+});
 });
 
 it("never writes a total or a sum of prices", () => {
@@ -199,14 +215,16 @@ const blocks = buildListArticleBlocks(itemsByTab, [
 { name: "NHK", purpose: "テレビ設置の義務", url: "https://www.nhk.or.jp/" },
 { name: "DAZN", purpose: "", url: "" },
 ]);
-const tail = blocks.slice(-6);
+const tail = blocks.slice(-8);
 expect(tail).toEqual([
 { type: "heading2", text: "サブスクリプション"},
 { type: "toc" },
-{ type: "text", text: "NHK"},
+{ type: "itemTitle", text: "NHK"},
 { type: "text", text: "テレビ設置の義務"},
 { type: "link", text: "https://www.nhk.or.jp/"},
-{ type: "text", text: "DAZN"},
+{ type: "text", text: "[[アンカーリンク]]" },
+{ type: "itemTitle", text: "DAZN"},
+{ type: "text", text: "[[アンカーリンク]]" },
 ]);
 });
 
@@ -222,15 +240,18 @@ const start = blocks.findIndex(
 expect(blocks.slice(start)).toEqual([
 { type: "heading2", text: "サブスクリプション" },
 { type: "toc" },
-{ type: "text", text: "Peak Chinese" },
+{ type: "itemTitle", text: "Peak Chinese" },
 { type: "text", text: "中国語学習用（解約手続き済みで、2027年9月26日まで利用できます）" },
 { type: "text", text: "[[画像グレーアウト]]" },
 { type: "link", text: "https://apps.apple.com/jp/app/id1462500984" },
-{ type: "text", text: "Suno" },
+{ type: "text", text: "[[アンカーリンク]]" },
+{ type: "itemTitle", text: "Suno" },
 { type: "text", text: "音楽生成AI" },
 { type: "link", text: "https://suno.com/" },
-{ type: "text", text: "NoLink" },
+{ type: "text", text: "[[アンカーリンク]]" },
+{ type: "itemTitle", text: "NoLink" },
 { type: "text", text: "解約済み" },
+{ type: "text", text: "[[アンカーリンク]]" },
 ]);
 });
 
@@ -270,22 +291,26 @@ flag: "",
 expect(blocks).toEqual([
 { type: "heading2", text: "暮らしにまつわる物" },
 { type: "toc" },
-{ type: "text", text: "1. クリップライト" },
+{ type: "itemTitle", text: "1. クリップライト" },
 { type: "text", text: "[[画像グレーアウト]]" },
 { type: "link", text: "https://item.rakuten.co.jp/example/1/" },
 { type: "text", text: "机用" },
-{ type: "text", text: "2. メモ帳" },
+{ type: "text", text: "[[アンカーリンク]]" },
+{ type: "itemTitle", text: "2. メモ帳" },
 { type: "link", text: "https://example.com/memo" },
+{ type: "text", text: "[[アンカーリンク]]" },
 { type: "heading2", text: "サブスクリプション" },
 { type: "toc" },
-{ type: "text", text: "Chat GPT Plus" },
+{ type: "itemTitle", text: "Chat GPT Plus" },
 { type: "text", text: "AIチャット" },
 { type: "text", text: "[[画像グレーアウト]]" },
 { type: "link", text: "https://chatgpt.com/" },
-{ type: "text", text: "Peak Chinese" },
+{ type: "text", text: "[[アンカーリンク]]" },
+{ type: "itemTitle", text: "Peak Chinese" },
 { type: "text", text: "解約手続き済み" },
 { type: "text", text: "[[画像グレーアウト]]" },
 { type: "link", text: "https://apps.apple.com/jp/app/x" },
+{ type: "text", text: "[[アンカーリンク]]" },
 ]);
 });
 });
@@ -337,16 +362,26 @@ describe("generateListArticleDraft", () => {
   let mockBody;
   let mockDoc;
   let mockFile;
+  let mockParagraphs;
   let mockProperties;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockParagraphs = [];
     mockBody = {
       clear: vi.fn(),
-      appendParagraph: vi.fn(() => ({
-        setHeading: vi.fn(),
-        appendText: vi.fn(() => ({ setLinkUrl: vi.fn() })),
-      })),
+      appendParagraph: vi.fn((text) => {
+        const textObject = { setBold: vi.fn() };
+        const paragraph = {
+          text,
+          textObject,
+          setHeading: vi.fn(),
+          appendText: vi.fn(() => ({ setLinkUrl: vi.fn() })),
+          editAsText: vi.fn(() => textObject),
+        };
+        mockParagraphs.push(paragraph);
+        return paragraph;
+      }),
     };
     mockDoc = {
       getId: vi.fn(() => "doc-id"),
@@ -402,6 +437,19 @@ describe("generateListArticleDraft", () => {
     expect(written).toContain("NHK");
     expect(written).toContain("https://www.nhk.or.jp/");
     expect(written.join("\n")).not.toContain("21,765");
+  });
+
+  it("writes item and subscription titles bold and closes each entry with an anchor marker", () => {
+    generateListArticleDraft();
+    const bolded = mockParagraphs
+      .filter((p) => p.textObject.setBold.mock.calls.length > 0)
+      .map((p) => p.text);
+    expect(bolded).toEqual(["1. クリップライト", "NHK"]);
+    mockParagraphs.forEach((p) => {
+      p.textObject.setBold.mock.calls.forEach((c) => expect(c).toEqual([true]));
+    });
+    const written = mockBody.appendParagraph.mock.calls.map((c) => c[0]);
+    expect(written.filter((t) => t === "[[アンカーリンク]]")).toHaveLength(2);
   });
 
   it("grays out a room item whose URL is in the flags sheet", () => {
