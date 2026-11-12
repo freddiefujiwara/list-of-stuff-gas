@@ -587,16 +587,12 @@ export function generateListArticleDraft() {
       paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING1);
     } else if (type === 'heading2') {
       paragraph.setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    } else if (type === 'itemTitle') {
+      // Bold the whole paragraph, so the converted markdown holds a
+      // bold-only paragraph — the title shape the [[アンカーリンク]]
+      // marker binds to on the front-ends.
+      paragraph.editAsText().setBold(true);
     }
-    // Character formatting carries over to each newly appended
-    // paragraph, so bold is set explicitly on every paragraph: item
-    // titles bold (the converted markdown then holds them as
-    // bold-only paragraphs — the title shape the [[アンカーリンク]]
-    // marker binds to on the front-ends), everything else not.
-    // Without this, the comment and the marker paragraph itself
-    // would inherit the title's bold, and a bold marker no longer
-    // matches as a marker.
-    paragraph.editAsText().setBold(type === 'itemTitle');
   });
   doc.saveAndClose();
   if (file.getName() !== nameBefore) {
@@ -1288,4 +1284,4 @@ export function doPost(e) {
   return jsonOut_({ ok: false, error: 'unknown action' });
 }
 
-export { buildItemLine, buildListArticleBlocks, createSubscription_, deleteSubscription_, doPost, extractSubscriptions, issueOwnerSession_, issueShareSession_, listGenres_, normalizeArticleUrl, normalizeItemRow_, readAdminItems_, readRoomItems_, readSubscriptions_, revokeOwnerSession_, revokeShareSession_, setRoomFlag_, splitTitle, subscriptionCells_, updateSubscription_, validateOwnerToken_, validateShareToken_, verifyIdToken_ };
+export { buildItemLine, buildListArticleBlocks, createSubscription_, deleteSubscription_, extractSubscriptions, issueOwnerSession_, issueShareSession_, listGenres_, normalizeArticleUrl, normalizeItemRow_, readAdminItems_, readRoomItems_, readSubscriptions_, revokeOwnerSession_, revokeShareSession_, setRoomFlag_, splitTitle, subscriptionCells_, updateSubscription_, validateOwnerToken_, validateShareToken_, verifyIdToken_ };
