@@ -130,6 +130,15 @@ describe("doGet", () => {
         ');'
     );
   });
+
+  it("should fall back to JSON for a callback that is not a plain identifier", () => {
+    const e = { parameter: { callback: "alert(1)//" } };
+    doGet(e);
+    expect(mockContentService.setMimeType).toHaveBeenCalledWith("JSON");
+    expect(mockContentService.setContent).toHaveBeenCalledWith(
+      JSON.stringify([{ header1: "value1", header2: "value2", shortTitle: "", props: "" }])
+    );
+  });
 });
 
 describe("doGet response cache", () => {
