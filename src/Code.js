@@ -94,10 +94,17 @@ const sheetValuesToObjects = values => {
   );
 };
 
+// A JSONP callback must be a plain JavaScript identifier path; anything
+// else would be reflected verbatim into a JavaScript response (the same
+// validation bucket-list-gas applies).
+const isValidCallback_ = (callback) =>
+  typeof callback === 'string' &&
+  /^[A-Za-z_$][0-9A-Za-z_$]*(\.[A-Za-z_$][0-9A-Za-z_$]*)*$/.test(callback);
+
 // Helper to create the final output for doGet
 const createJsonpOutput = (data, callback) => {
   const output = ContentService.createTextOutput();
-  if (callback) {
+  if (callback && isValidCallback_(callback)) {
     output.setMimeType(ContentService.MimeType.JAVASCRIPT);
     output.setContent(`${callback}&&${callback}(${JSON.stringify(data)});`);
   } else {
