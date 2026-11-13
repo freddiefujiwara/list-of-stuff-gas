@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   doPost,
+  issueOwnerSession_,
   issueShareSession_,
   normalizeItemRow_,
   readAdminItems_,
   revokeShareSession_,
+  validateOwnerToken_,
   validateShareToken_,
   verifyIdToken_,
 } from "../src/Code.js";
@@ -437,6 +439,13 @@ describe("owner sessions", () => {
   it("rejects an unknown session token", () => {
     post({ action: "list_items", sheet: "others", session_token: "nope" });
     expect(lastJson()).toEqual({ ok: false, status: 401, error: "session expired or invalid" });
+  });
+
+  it("issuing a new owner session keeps the previous one valid", () => {
+    const first = issueOwnerSession_();
+    const second = issueOwnerSession_();
+    expect(validateOwnerToken_(first.session_token)).not.toBeNull();
+    expect(validateOwnerToken_(second.session_token)).not.toBeNull();
   });
 
   it("revokes the session on revoke_session (logout)", () => {
